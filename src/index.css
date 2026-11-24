@@ -1,0 +1,1356 @@
+/* ==========================================================================
+   GreenRoute AI — Precision Eco-Logistics Design System (Vanilla CSS)
+   Palette: Warm Alabaster Canvas + Deep Forest Pine + Crisp Paper Surfaces
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --bg-canvas: hsl(78, 16%, 96%);
+  --bg-surface: #ffffff;
+  --bg-subtle: hsl(90, 12%, 94%);
+  --bg-muted: hsl(90, 10%, 91%);
+
+  /* Brand & Semantic Ink */
+  --pine-900: hsl(153, 66%, 14%);
+  --pine-800: hsl(152, 69%, 19%);
+  --pine-700: hsl(152, 62%, 25%);
+  --pine-600: hsl(152, 54%, 33%);
+  --pine-100: hsl(146, 42%, 92%);
+  --pine-50: hsl(146, 46%, 96%);
+
+  --ink-primary: hsl(155, 24%, 10%);
+  --ink-secondary: hsl(155, 13%, 33%);
+  --ink-muted: hsl(155, 10%, 49%);
+
+  /* Data & Fleet Route Colors */
+  --route-1: #0f5132; /* Forest Pine */
+  --route-2: #1e40af; /* Deep Cobalt */
+  --route-3: #b45309; /* Warm Ochre */
+  --route-4: #0e7490; /* Deep Teal */
+  --route-before: #b91c1c; /* Baseline Muted Crimson */
+
+  /* Status */
+  --amber-bg: hsl(42, 92%, 94%);
+  --amber-ink: hsl(31, 86%, 30%);
+  --amber-border: hsl(38, 76%, 76%);
+
+  --red-bg: hsl(0, 82%, 95%);
+  --red-ink: hsl(0, 72%, 38%);
+  --red-border: hsl(0, 65%, 84%);
+
+  --blue-bg: hsl(214, 82%, 95%);
+  --blue-ink: hsl(217, 72%, 35%);
+  --blue-border: hsl(214, 65%, 83%);
+
+  /* Borders & Elevation */
+  --border-hairline: rgba(16, 32, 25, 0.09);
+  --border-strong: rgba(16, 32, 25, 0.16);
+  --shadow-sm: 0 1px 2px rgba(16, 32, 25, 0.04);
+  --shadow-md: 0 2px 6px rgba(16, 32, 25, 0.04), 0 10px 24px -12px rgba(16, 32, 25, 0.09);
+  --shadow-lg: 0 12px 36px -8px rgba(16, 32, 25, 0.18), 0 2px 8px rgba(16, 32, 25, 0.06);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Typography */
+  --font-sans: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   App Shell & Header
+   ========================================================================== */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-hairline);
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--pine-800);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.brand-title-wrap {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-subtitle {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.track-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pine-800);
+  background: var(--pine-100);
+  padding: 2px 7px;
+  border-radius: 5px;
+  letter-spacing: 0.01em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.engine-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+}
+
+.engine-status.is-live {
+  background: var(--pine-50);
+  border-color: rgba(15, 81, 50, 0.22);
+  color: var(--pine-800);
+}
+
+.engine-status.is-fallback {
+  background: var(--amber-bg);
+  border-color: var(--amber-border);
+  color: var(--amber-ink);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out),
+    color 140ms var(--ease-out), transform 100ms var(--ease-out), box-shadow 140ms var(--ease-out);
+  white-space: nowrap;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--pine-800);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 81, 50, 0.24);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--pine-700);
+}
+
+.btn-secondary {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  border-color: rgba(16, 32, 25, 0.26);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.btn-lg {
+  padding: 10px 16px;
+  font-size: 13.5px;
+  border-radius: 9px;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* ==========================================================================
+   Main Operational Workspace Layout
+   ========================================================================== */
+
+.workspace {
+  max-width: 1480px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 18px 24px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* KPI Impact Strip */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: 15px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+
+.kpi-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.kpi-card.is-highlight {
+  background: linear-gradient(160deg, #ffffff 0%, var(--pine-50) 100%);
+  border-color: rgba(15, 81, 50, 0.22);
+}
+
+.kpi-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.kpi-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kpi-value {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--ink-primary);
+}
+
+.kpi-card.is-highlight .kpi-value {
+  color: var(--pine-800);
+}
+
+.kpi-delta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pine-800);
+  background: var(--pine-100);
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+
+.kpi-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Primary Two-Column Split */
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(380px, 460px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.column-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Surface Panels */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.step-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--pine-800);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink-primary);
+  letter-spacing: -0.01em;
+}
+
+.panel-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.panel-body {
+  padding: 16px 18px;
+}
+
+/* ==========================================================================
+   Order Input Panel (Presets, Chat/OCR Tabs, Fleet Settings)
+   ========================================================================== */
+
+.preset-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preset-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.preset-btn {
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all 140ms var(--ease-out);
+}
+
+.preset-btn span {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.preset-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+}
+
+.preset-btn.is-active {
+  background: var(--pine-50);
+  border-color: rgba(15, 81, 50, 0.35);
+  color: var(--pine-900);
+}
+
+.preset-btn.is-active span {
+  color: var(--pine-700);
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  gap: 2px;
+}
+
+.segmented-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 140ms var(--ease-out);
+}
+
+.segmented-btn:hover {
+  color: var(--ink-primary);
+}
+
+.segmented-btn.is-active {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  box-shadow: 0 1px 3px rgba(16, 32, 25, 0.1);
+}
+
+.chat-textarea {
+  width: 100%;
+  min-height: 175px;
+  resize: vertical;
+  padding: 11px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-primary);
+  transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+}
+
+.chat-textarea:focus {
+  outline: none;
+  border-color: var(--pine-700);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(15, 81, 50, 0.09);
+}
+
+/* Upload Dropzone */
+.upload-box {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  padding: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.upload-preview {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.upload-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Fleet Config Row */
+.fleet-config {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-field label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.input-control {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: #ffffff;
+  font-size: 13px;
+  color: var(--ink-primary);
+}
+
+.input-control:focus {
+  outline: none;
+  border-color: var(--pine-700);
+  box-shadow: 0 0 0 3px rgba(15, 81, 50, 0.09);
+}
+
+/* Notice Banner */
+.notice {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.45;
+}
+
+.notice.info {
+  background: var(--pine-50);
+  border: 1px solid rgba(15, 81, 50, 0.2);
+  color: var(--pine-900);
+}
+
+.notice.warn {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-ink);
+}
+
+/* ==========================================================================
+   Human-in-the-Loop Order Review List
+   ========================================================================== */
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 390px;
+  overflow-y: auto;
+}
+
+.order-item {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+.order-item:last-child {
+  border-bottom: none;
+}
+
+.order-item:hover {
+  background: var(--bg-canvas);
+}
+
+.order-item.needs-review {
+  background: var(--amber-bg);
+}
+
+.order-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.order-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.order-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: var(--bg-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.conf-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.conf-badge.high {
+  background: var(--pine-100);
+  color: var(--pine-800);
+}
+
+.conf-badge.low {
+  background: #ffffff;
+  border: 1px solid var(--amber-border);
+  color: var(--amber-ink);
+}
+
+.order-address {
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.order-controls {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.order-mini-input {
+  padding: 4px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.order-note {
+  font-size: 11.5px;
+  color: var(--amber-ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.review-footer {
+  padding: 14px 18px;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Map Panel
+   ========================================================================== */
+
+.map-toolbar {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.map-container-wrap {
+  position: relative;
+  height: 440px;
+  width: 100%;
+  background: #eef1ec;
+}
+
+.leaflet-map-host {
+  height: 100%;
+  width: 100%;
+  z-index: 1;
+}
+
+.leaflet-tile-pane {
+  filter: saturate(0.42) brightness(1.03) contrast(0.96);
+}
+
+.map-legend {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 400;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  padding: 8px 12px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 3.5px;
+  border-radius: 2px;
+}
+
+.legend-swatch.dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--route-before) 0,
+    var(--route-before) 5px,
+    transparent 5px,
+    transparent 9px
+  );
+}
+
+.map-meta-bar {
+  padding: 10px 16px;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+/* Custom Leaflet Markers */
+.gr-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(16, 32, 25, 0.3);
+}
+
+.gr-depot-marker {
+  background: #111c17;
+  color: #ffffff;
+  border-radius: 8px;
+  border: 2px solid #ffffff;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(16, 32, 25, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ==========================================================================
+   Vehicle Routes & LIFO Loading Plan
+   ========================================================================== */
+
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.vehicle-card {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+  cursor: pointer;
+}
+
+.vehicle-card:hover {
+  border-color: var(--border-strong);
+  background: #ffffff;
+}
+
+.vehicle-card.is-selected {
+  background: #ffffff;
+  border-color: var(--pine-700);
+  box-shadow: var(--shadow-md);
+}
+
+.vehicle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vehicle-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.vehicle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.vehicle-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+}
+
+.vstat {
+  display: flex;
+  flex-direction: column;
+}
+
+.vstat-label {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.vstat-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.load-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.load-bar-track {
+  height: 7px;
+  border-radius: 99px;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+
+.load-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 300ms var(--ease-out);
+}
+
+/* Stop Timeline */
+.stop-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stop-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+}
+
+.stop-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.stop-info strong {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-primary);
+}
+
+.stop-info span {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.stop-meta {
+  text-align: right;
+  font-size: 11px;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+/* LIFO Truck Cargo Diagram */
+.lifo-box {
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lifo-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  display: flex;
+  justify-content: space-between;
+}
+
+.lifo-bay {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  overflow-x: auto;
+}
+
+.lifo-slot {
+  flex: 1 0 42px;
+  padding: 5px 4px;
+  border-radius: 5px;
+  background: var(--pine-50);
+  border: 1px solid rgba(15, 81, 50, 0.2);
+  text-align: center;
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+.lifo-slot strong {
+  display: block;
+  color: var(--pine-900);
+}
+
+.lifo-slot span {
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.vehicle-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+/* Comparison Summary Strip inside Fleet Panel */
+.before-after-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.before-after-table th,
+.before-after-table td {
+  padding: 9px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.before-after-table th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: var(--bg-canvas);
+}
+
+.before-after-table tr:last-child td {
+  border-bottom: none;
+}
+
+.delta-positive {
+  color: var(--pine-800);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Modals (Carbon ESG Report, PDPA/Tech Inspector, API Settings)
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 29, 24, 0.48);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 150ms var(--ease-out);
+}
+
+.modal-dialog {
+  width: 100%;
+  max-width: 780px;
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp 180ms var(--ease-out);
+}
+
+.modal-dialog.is-compact {
+  max-width: 520px;
+}
+
+.modal-header {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.modal-body {
+  padding: 20px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-footer {
+  padding: 14px 22px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--bg-canvas);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: #13201a;
+  color: #e6f2ec;
+  padding: 12px 14px;
+  border-radius: 9px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-stat {
+  padding: 13px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-canvas);
+}
+
+.report-stat-label {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.report-stat-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--pine-800);
+  margin-top: 4px;
+}
+
+.report-stat-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin-top: 2px;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1200;
+  background: var(--ink-primary);
+  color: #ffffff;
+  padding: 10px 15px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideUp 180ms var(--ease-out);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 1120px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    height: auto;
+    padding: 10px 14px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .workspace {
+    padding: 12px 14px 28px;
+  }
+
+  .kpi-strip,
+  .preset-pills,
+  .diff-grid,
+  .report-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .map-container-wrap {
+    height: 340px;
+  }
+}
+
+/* ==========================================================================
+   Print Stylesheet for A4 TGO ESG Carbon Report Export
+   ========================================================================== */
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .topbar,
+  .workspace,
+  .modal-footer,
+  .no-print {
+    display: none !important;
+  }
+
+  .modal-backdrop {
+    position: static;
+    background: none;
+    padding: 0;
+    display: block;
+  }
+
+  .modal-dialog {
+    max-width: 100%;
+    max-height: none;
+    box-shadow: none;
+    border: none;
+  }
+}
