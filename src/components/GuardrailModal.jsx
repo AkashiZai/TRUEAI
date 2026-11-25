@@ -1,7 +1,36 @@
-import { Cpu, Lock, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Cpu, Image as ImageIcon, Lock, ShieldCheck, X } from 'lucide-react';
+import { generateSampleThaiReceiptImage } from '../data/demoPresets';
+import { applyVisualRedaction, REDACTION_PRESETS } from '../engine/imageRedactor';
 
-export default function GuardrailModal({ isOpen, onClose, piiReport, telemetry, optimization }) {
+export default function GuardrailModal({
+  isOpen,
+  onClose,
+  piiReport,
+  imagePrivacy,
+  telemetry,
+  optimization,
+}) {
+  const [fallbackDemoPair, setFallbackDemoPair] = useState({ raw: null, redacted: null });
+
+  // Prepare an automatic visual redaction proof pair so Q&A always has a live Before/After image demo
+  useEffect(() => {
+    if (!isOpen || imagePrivacy?.raw) return;
+    let cancelled = false;
+    const raw = generateSampleThaiReceiptImage();
+    const defaultBoxes = REDACTION_PRESETS[0].boxes;
+    applyVisualRedaction(raw, defaultBoxes).then((redacted) => {
+      if (!cancelled) setFallbackDemoPair({ raw, redacted });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, imagePrivacy?.raw]);
+
   if (!isOpen) return null;
+
+  const displayRawImg = imagePrivacy?.raw || fallbackDemoPair.raw;
+  const displayRedactedImg = imagePrivacy?.redacted || fallbackDemoPair.redacted;
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
@@ -10,9 +39,9 @@ export default function GuardrailModal({ isOpen, onClose, piiReport, telemetry, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ShieldCheck size={20} color="var(--pine-800)" />
             <div>
-              <h2>PDPA PII Masking &amp; Hybrid AI Architecture Inspector</h2>
+              <h2>PDPA Privacy Guardrails (Text + Image) &amp; Hybrid AI Inspector</h2>
               <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
-                หน้าสำหรับตอบคำถาม Q&amp;A กรรมการเรื่องความปลอดภัยข้อมูลและข้อจำกัดของ AI
+                ป้องกันข้อมูลส่วนบุคคลรั่วไหลทั้งข้อความแชตและรูปใบส่งของ ก่อนส่งเข้า Cloud API
               </div>
             </div>
           </div>
@@ -27,10 +56,21 @@ export default function GuardrailModal({ isOpen, onClose, piiReport, telemetry, 
             <div className="report-stat">
               <div className="report-stat-label">
                 <Lock size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-                PDPA Redaction
+                Text PII Masking
               </div>
               <div className="report-stat-val mono">{piiReport?.maskedCount || 0} รายการ</div>
-              <div className="report-stat-sub">ซ่อนเบอร์โทร/ชื่อบุคคลก่อนส่ง API</div>
+              <div className="report-stat-sub">ซ่อนเบอร์โทร/ชื่อบุคคลเป็น Token</div>
+            </div>
+
+            <div className="report-stat">
+              <div className="report-stat-label">
+                <ImageIcon size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
+                Visual Image Redaction
+              </div>
+              <div className="report-stat-val" style={{ fontSize: 14, marginTop: 8 }}>
+                Client-Side Canvas
+              </div>
+              <div className="report-stat-sub">คาดแถบดำปิดคอลัมน์เบอร์โทรในเครื่อง</div>
             </div>
 
             <div className="report-stat">
@@ -42,30 +82,23 @@ export default function GuardrailModal({ isOpen, onClose, piiReport, telemetry, 
                 {optimization?.benchmark?.solveTimeMs || 0} ms
               </div>
               <div className="report-stat-sub mono">
-                {optimization?.benchmark?.iterations || 0} evaluations (0% Hallucination)
+                {optimization?.benchmark?.iterations || 0} evals ·{' '}
+                {telemetry?.mode === 'gemini-live' ? 'Gemini Live' : 'Offline Fallback'}
               </div>
-            </div>
-
-            <div className="report-stat">
-              <div className="report-stat-label">Extraction Resilience</div>
-              <div className="report-stat-val" style={{ fontSize: 14, marginTop: 8 }}>
-                {telemetry?.mode === 'gemini-live' ? 'Gemini Live API' : 'Offline Smart Fallback'}
-              </div>
-              <div className="report-stat-sub">Auto-failover เมื่อติด 429 Limit</div>
             </div>
           </div>
 
-          {/* Live PDPA Masking Diff */}
+          {/* Live Text PDPA Masking Diff */}
           <div>
             <h3 style={{ margin: '0 0 8px', fontSize: 13.5 }}>
-              ตัวอย่างข้อมูลก่อน-หลังทำ PDPA PII Masking (ข้อมูลจริงในรอบนี้)
+              1) โหมดข้อความ (LINE Chat): เปรียบเทียบก่อน-หลังทำ Local PII Masking
             </h3>
             <div className="diff-grid">
               <div>
                 <div className="field-label" style={{ marginBottom: 5 }}>
                   <span>ข้อมูลดิบบนเครื่องลูกค้า (Local Only)</span>
                 </div>
-                <div className="code-block" style={{ maxHeight: 200 }}>
+                <div className="code-block" style={{ maxHeight: 155 }}>
                   {piiReport?.rawText || 'ยังไม่มีข้อมูล'}
                 </div>
               </div>
@@ -73,26 +106,67 @@ export default function GuardrailModal({ isOpen, onClose, piiReport, telemetry, 
                 <div className="field-label" style={{ marginBottom: 5 }}>
                   <span>Payload ที่ส่งเข้า Gemini Cloud API (Redacted)</span>
                 </div>
-                <div className="code-block" style={{ maxHeight: 200, background: '#0e281d' }}>
+                <div className="code-block" style={{ maxHeight: 155, background: '#0e281d' }}>
                   {piiReport?.maskedText || 'ยังไม่มีข้อมูล'}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* CS Design Justification */}
+          {/* Live Visual Image Redaction Diff */}
+          {displayRawImg && displayRedactedImg && (
+            <div>
+              <h3 style={{ margin: '0 0 8px', fontSize: 13.5 }}>
+                2) โหมดรูปใบส่งของ (Image OCR): Client-Side Visual Redaction ก่อนส่ง Gemini Vision
+              </h3>
+              <div className="diff-grid">
+                <div>
+                  <div className="field-label" style={{ marginBottom: 5 }}>
+                    <span>ภาพต้นฉบับในเครื่อง (มีคอลัมน์เบอร์โทร PII)</span>
+                  </div>
+                  <img
+                    src={displayRawImg}
+                    alt="ภาพใบส่งของต้นฉบับบนเครื่องลูกค้า"
+                    style={{
+                      width: '100%',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-strong)',
+                      display: 'block',
+                    }}
+                  />
+                </div>
+                <div>
+                  <div className="field-label" style={{ marginBottom: 5 }}>
+                    <span>ภาพที่ส่งออก Cloud (คาดแถบดำลบพิกเซล PII แล้ว)</span>
+                  </div>
+                  <img
+                    src={displayRedactedImg}
+                    alt="ภาพใบส่งของที่ผ่านการคาดแถบดำลบเบอร์โทรแล้ว"
+                    style={{
+                      width: '100%',
+                      borderRadius: 8,
+                      border: '1.5px solid var(--pine-700)',
+                      display: 'block',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Engineering & PDPA Defense Note */}
           <div className="notice info" style={{ marginTop: 0 }}>
             <div>
-              <strong>ทำไมต้องแยก 3 Layer (Hybrid AI + Deterministic CS)?</strong>
+              <strong>สถาปัตยกรรมป้องกัน PII รั่วไหลในระดับ Production (Dual-Path Privacy):</strong>
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                 <li>
-                  <strong>Layer 1 (Gemini Multimodal):</strong> ใช้เฉพาะงานที่ LLM เก่งที่สุด คือแกะแชตภาษาไทยที่ไร้โครงสร้างและอ่านภาพถ่ายใบส่งของ พร้อมให้คะแนนความมั่นใจ (Human-in-the-Loop)
+                  <strong>บิลพิมพ์มาตรฐาน:</strong> รัน <em>On-Device Pre-OCR</em> (ML Kit / Tesseract.js) บนเครื่องลูกค้า → ทำ Local PII Masking → ส่งเฉพาะข้อความที่ล้าง PII แล้วให้ Gemini (ไม่มีรูปหลุดออกนอกเครื่อง)
                 </li>
                 <li>
-                  <strong>Layer 2 (CVRPTW Algorithm):</strong> ไม่ให้ LLM จัดเส้นทางเองเพื่อกัน Hallucination แต่ใช้ <em>Clarke-Wright Savings + 2-Opt + Inter-Route Relocate</em> ภายใต้ข้อจำกัดน้ำหนักรถและเวลาเปิด-ปิดร้าน
+                  <strong>บิลลายมือหวัดที่ต้องใช้ Vision:</strong> ทำ <em>Client-Side Canvas Redaction</em> คาดแถบดำปิดคอลัมน์เบอร์โทร/ชื่อผู้ติดต่อบนเครื่องก่อนส่ง (เหลือเฉพาะชื่อนิติบุคคล/สินค้าซึ่งไม่เป็น PII ตาม พ.ร.บ. PDPA) ควบคู่สัญญา <em>Zero Data Retention</em> บน Enterprise API
                 </li>
                 <li>
-                  <strong>Layer 3 (TGO Formula Engine):</strong> คำนวณ CO₂ ด้วยสูตรตรงตาม อบก. (2.7403 / 3.0326 kgCO₂e/ลิตร) ตรวจสอบย้อนหลังได้ 100%
+                  <strong>Dynamic Daily Dispatching:</strong> แม้องค์กรมีลูกค้าประจำ 50–150 ราย (Cache พิกัดได้ 70–80%) แต่ Subset ที่สั่งจริง น้ำหนัก และ Time Window เปลี่ยนทุกเช้า จึงต้องคำนวณ CVRPTW ใหม่ทุกวัน
                 </li>
               </ul>
             </div>

@@ -46,7 +46,7 @@ export default function App() {
   const [activePresetId, setActivePresetId] = useState(defaultPreset.id);
   const [inputMode, setInputMode] = useState('text');
   const [rawChat, setRawChat] = useState(defaultPreset.rawChat);
-  const [imageDataUrl, setImageDataUrl] = useState(null);
+  const [imagePrivacy, setImagePrivacy] = useState({ raw: null, redacted: null, boxCount: 0 });
   const [fleetConfig, setFleetConfig] = useState(defaultPreset.fleet);
 
   const [orders, setOrders] = useState(initial.orders);
@@ -131,7 +131,7 @@ export default function App() {
 
     setActivePresetId(preset.id);
     setRawChat(preset.rawChat);
-    setImageDataUrl(null);
+    setImagePrivacy({ raw: null, redacted: null, boxCount: 0 });
     setInputMode('text');
     setFleetConfig(preset.fleet);
 
@@ -155,9 +155,12 @@ export default function App() {
   const handleExtract = async () => {
     setIsExtracting(true);
     try {
+      // Privacy Guarantee: ONLY send the client-side redacted image to Gemini Vision (never rawImage)
+      const safeRedactedImage =
+        inputMode === 'image' ? imagePrivacy.redacted || imagePrivacy.raw : null;
       const result = await extractOrdersHybrid({
         rawText: inputMode === 'text' ? rawChat : '',
-        imageDataUrl: inputMode === 'image' ? imageDataUrl : null,
+        imageDataUrl: safeRedactedImage,
         fallbackPresetText: rawChat || activePreset.rawChat,
         apiKey,
         model,
@@ -282,8 +285,9 @@ export default function App() {
               onChangeInputMode={setInputMode}
               rawChat={rawChat}
               onChangeRawChat={setRawChat}
-              imageDataUrl={imageDataUrl}
-              onChangeImage={setImageDataUrl}
+              rawImageDataUrl={imagePrivacy.raw}
+              redactedImageDataUrl={imagePrivacy.redacted}
+              onChangeImages={setImagePrivacy}
               fleetConfig={fleetConfig}
               onChangeFleetConfig={setFleetConfig}
               onExtract={handleExtract}
@@ -335,6 +339,7 @@ export default function App() {
         isOpen={showGuardrailModal}
         onClose={() => setShowGuardrailModal(false)}
         piiReport={piiReport}
+        imagePrivacy={imagePrivacy}
         telemetry={telemetry}
         optimization={optimization}
       />

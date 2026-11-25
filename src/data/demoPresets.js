@@ -93,63 +93,71 @@ export const DEMO_PRESETS = [
  */
 export function generateSampleThaiReceiptImage() {
   const canvas = document.createElement('canvas');
-  canvas.width = 760;
+  canvas.width = 820;
   canvas.height = 520;
   const ctx = canvas.getContext('2d');
 
-  // Paper texture background
+  // Paper background
   ctx.fillStyle = '#fdfcf8';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Subtle header band
+  // Header band
   ctx.fillStyle = '#0f5132';
   ctx.fillRect(0, 0, canvas.width, 64);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px "IBM Plex Sans Thai", sans-serif';
+  ctx.font = 'bold 21px "IBM Plex Sans Thai", sans-serif';
   ctx.fillText('ใบสรุปรายการส่งของประจำวัน — หจก. อโศก ซัพพลาย', 28, 40);
 
   ctx.fillStyle = '#4a5d54';
-  ctx.font = '15px "IBM Plex Sans Thai", sans-serif';
-  ctx.fillText('วันที่: 26 พ.ย. 2569   |   คลังต้นทาง: อโศก–ประสานมิตร   |   รถจัดส่ง: กระบะตู้ทึบ (1,000 กก.)', 28, 92);
+  ctx.font = '14px "IBM Plex Sans Thai", sans-serif';
+  ctx.fillText(
+    'วันที่: 26 พ.ย. 2569  |  ผู้จัดส่ง: คุณสมศักดิ์ (แอดมิน)  |  คลังต้นทาง: อโศก–ประสานมิตร',
+    28,
+    92
+  );
 
-  // Divider
-  ctx.strokeStyle = '#d3dcd6';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(28, 108);
-  ctx.lineTo(732, 108);
-  ctx.stroke();
+  // Column header
+  ctx.fillStyle = '#e8f4ec';
+  ctx.fillRect(24, 108, 772, 28);
+  ctx.fillStyle = '#0f5132';
+  ctx.font = 'bold 13.5px "IBM Plex Sans Thai", sans-serif';
+  ctx.fillText('ร้านค้า / ย่านจัดส่ง / สินค้า / น้ำหนัก / ช่วงเวลา', 36, 127);
+  ctx.fillText('ผู้ติดต่อ & เบอร์โทร (PII)', 638, 127);
 
-  const lines = [
-    '1) ร้านเจ๊หมวย คาเฟ่ — ซอยสุขุมวิท 23 | น้ำดื่ม 180 กก. | ก่อน 11:30 | 089-412-8831',
-    '2) คาเฟ่ บ้านอารีย์ — ซอยอารีย์ 1 | น้ำแร่ 140 กก. | 09:00-12:00 | 081-775-2049',
-    '3) ก๋วยเตี๋ยวเรือคลองเตย — ถ.พระราม 4 | น้ำแพ็ก 220 กก. | 08:00-11:00 | 092-318-4410',
-    '4) โชห่วยเฮียตี๋ — รัชดาซอย 7 ห้วยขวาง | เครื่องดื่ม 190 กก. | 09:00-13:00 | 086-901-3372',
-    '5) บจก. สยามเทค — สีลม คอมเพล็กซ์ | น้ำถัง 160 กก. | 10:00-14:00 | 084-552-1904',
-    '6) ร้านป้าแดง — ทองหล่อ ซอย 10 | น้ำแพ็ก 210 กก. | 08:30-12:00 | 095-611-2830',
-    '7) มินิมาร์ทลาดพร้าว 71 — นาคนิวาส | น้ำยกลัง 175 กก. | 10:00-15:00 | 087-230-9915',
-    '8) ร้านชาบูเอกมัย 12 — เอกมัย | น้ำอัดลม 150 กก. | 11:00-15:00 | 090-884-7721',
-    '9) ข้าวแกงสามย่าน — สามย่าน มิตรทาวน์ | น้ำดื่ม 200 กก. | 08:00-11:30 | 082-449-6120',
-    '10) ศูนย์อาหารอ่อนนุช 17 — อ่อนนุช | ชุดใหญ่ (~250 กก.) | 10:00-14:00 | 098-112-5534',
+  const rows = [
+    ['1) ร้านเจ๊หมวย คาเฟ่ · ซอยสุขุมวิท 23 | น้ำดื่ม 180 กก. | ก่อน 11:30', '089-412-8831'],
+    ['2) คาเฟ่ บ้านอารีย์ · ซอยอารีย์ 1 | น้ำแร่ 140 กก. | 09:00–12:00', 'คุณเมย์ 081-775-2049'],
+    ['3) ก๋วยเตี๋ยวเรือคลองเตย · ถ.พระราม 4 | น้ำแพ็ก 220 กก. | 08:00–11:00', '092-318-4410'],
+    ['4) โชห่วยเฮียตี๋ · รัชดาซอย 7 ห้วยขวาง | เครื่องดื่ม 190 กก. | 09:00–13:00', '086-901-3372'],
+    ['5) บจก. สยามเทค · สีลม คอมเพล็กซ์ | น้ำถัง 160 กก. | 10:00–14:00', 'คุณปอ 084-552-1904'],
+    ['6) ร้านป้าแดง · ทองหล่อ ซอย 10 | น้ำแพ็ก 210 กก. | 08:30–12:00', '095-611-2830'],
+    ['7) มินิมาร์ทลาดพร้าว 71 · นาคนิวาส | น้ำยกลัง 175 กก. | 10:00–15:00', 'คุณบอย 087-230-9915'],
+    ['8) ร้านชาบูเอกมัย 12 · เอกมัย | น้ำอัดลม 150 กก. | 11:00–15:00', '090-884-7721'],
+    ['9) ข้าวแกงสามย่าน · สามย่าน มิตรทาวน์ | น้ำดื่ม 200 กก. | 08:00–11:30', '082-449-6120'],
+    ['10) ศูนย์อาหารอ่อนนุช 17 · อ่อนนุช | ชุดใหญ่ (~250 กก.) | 10:00–14:00', '098-112-5534'],
   ];
 
-  ctx.fillStyle = '#111c17';
-  ctx.font = '16px "IBM Plex Sans Thai", sans-serif';
-  lines.forEach((line, idx) => {
-    const y = 142 + idx * 34;
+  ctx.font = '14.5px "IBM Plex Sans Thai", sans-serif';
+  rows.forEach(([leftText, phoneText], idx) => {
+    const y = 162 + idx * 33;
     if (idx % 2 === 1) {
-      ctx.fillStyle = '#f3f6f4';
-      ctx.fillRect(24, y - 22, 712, 30);
+      ctx.fillStyle = '#f4f7f5';
+      ctx.fillRect(24, y - 21, 772, 30);
     }
     ctx.fillStyle = '#111c17';
-    ctx.fillText(line, 34, y);
+    ctx.fillText(leftText, 36, y);
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillText(phoneText, 638, y);
   });
 
-  // Footer note
   ctx.fillStyle = '#6b7d73';
-  ctx.font = '13px "IBM Plex Sans Thai", sans-serif';
-  ctx.fillText('หมายเหตุ: เอกสารตัวอย่างสำหรับทดสอบ Gemini Vision OCR + PDPA PII Masking', 28, 496);
+  ctx.font = '12.5px "IBM Plex Sans Thai", sans-serif';
+  ctx.fillText(
+    'หมายเหตุ: คอลัมน์ขวา (สีแดง) มีข้อมูลส่วนบุคคล (PII) — ระบบจะคาดแถบดำบนเครื่องลูกค้าก่อนส่ง Gemini Vision',
+    28,
+    502
+  );
 
   return canvas.toDataURL('image/png');
 }

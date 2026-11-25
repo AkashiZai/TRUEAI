@@ -1,14 +1,19 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Camera,
   CheckCircle2,
+  Eye,
+  EyeOff,
   ImagePlus,
   MessageSquareText,
+  RotateCcw,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from 'lucide-react';
 import { DEMO_PRESETS, generateSampleThaiReceiptImage } from '../data/demoPresets';
+import { applyVisualRedaction, REDACTION_PRESETS } from '../engine/imageRedactor';
 
 export default function OrderInputPanel({
   activePresetId,
@@ -17,8 +22,9 @@ export default function OrderInputPanel({
   onChangeInputMode,
   rawChat,
   onChangeRawChat,
-  imageDataUrl,
-  onChangeImage,
+  rawImageDataUrl,
+  redactedImageDataUrl,
+  onChangeImages,
   fleetConfig,
   onChangeFleetConfig,
   onExtract,
@@ -26,6 +32,37 @@ export default function OrderInputPanel({
   telemetry,
 }) {
   const fileInputRef = useRef(null);
+  const previewWrapRef = useRef(null);
+
+  const [redactionPresetId, setRedactionPresetId] = useState('phone-column');
+  const [customBoxes, setCustomBoxes] = useState([]);
+  const [showRawPreview, setShowRawPreview] = useState(false);
+  const [dragBox, setDragBox] = useState(null);
+
+  const activePresetBoxes =
+    REDACTION_PRESETS.find((p) => p.id === redactionPresetId)?.boxes || [];
+  const allBoxes = [...activePresetBoxes, ...customBoxes];
+
+  // Re-burn redacted PNG on client canvas whenever raw image or blackout boxes change
+  useEffect(() => {
+    let cancelled = false;
+    if (!rawImageDataUrl) return;
+    const presetBoxes =
+      REDACTION_PRESETS.find((p) => p.id === redactionPresetId)?.boxes || [];
+    const boxesToBurn = [...presetBoxes, ...customBoxes];
+    applyVisualRedaction(rawImageDataUrl, boxesToBurn).then((redactedUrl) => {
+      if (!cancelled) {
+        onChangeImages({
+          raw: rawImageDataUrl,
+          redacted: redactedUrl,
+          boxCount: boxesToBurn.length,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rawImageDataUrl, redactionPresetId, customBoxes, onChangeImages]);
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -33,7 +70,9 @@ export default function OrderInputPanel({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        onChangeImage(reader.result);
+        setCustomBoxes([]);
+        setShowRawPreview(false);
+        onChangeImages({ raw: reader.result, redacted: reader.result, boxCount: 0 });
       }
     };
     reader.readAsDataURL(file);
@@ -41,7 +80,39 @@ export default function OrderInputPanel({
 
   const handleCreateSampleReceipt = () => {
     const dataUrl = generateSampleThaiReceiptImage();
-    onChangeImage(dataUrl);
+    setRedactionPresetId('phone-column');
+    setCustomBoxes([]);
+    setShowRawPreview(false);
+    onChangeImages({ raw: dataUrl, redacted: dataUrl, boxCount: 1 });
+  };
+
+  // Interactive click-and-drag custom PDPA blackout box on preview image
+  const handlePointerDown = (e) => {
+    if (!previewWrapRef.current || showRawPreview) return;
+    const rect = previewWrapRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setDragBox({ startX: x, startY: y, currX: x, currY: y });
+  };
+
+  const handlePointerMove = (e) => {
+    if (!dragBox || !previewWrapRef.current) return;
+    const rect = previewWrapRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setDragBox((prev) => (prev ? { ...prev, currX: x, currY: y } : null));
+  };
+
+  const handlePointerUp = () => {
+    if (!dragBox) return;
+    const x = Math.min(dragBox.startX, dragBox.currX);
+    const y = Math.min(dragBox.startY, dragBox.currY);
+    const w = Math.abs(dragBox.currX - dragBox.startX);
+    const h = Math.abs(dragBox.currY - dragBox.startY);
+    setDragBox(null);
+    if (w > 0.03 && h > 0.03) {
+      setCustomBoxes((prev) => [...prev, { x, y, w, h, tag: 'PDPA MASK' }]);
+    }
   };
 
   return (
@@ -117,13 +188,116 @@ export default function OrderInputPanel({
           />
         ) : (
           <div className="upload-box">
-            {imageDataUrl ? (
+            {rawImageDataUrl ? (
               <>
-                <img
-                  src={imageDataUrl}
-                  alt="ตัวอย่างใบส่งของ SME"
-                  className="upload-preview"
-                />
+                <div
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      color: 'var(--pine-800)',
+                    }}
+                  >
+                    <ShieldCheck size={14} />
+                    Client-Side Visual Redaction ({allBoxes.length} จุดปิดบัง)
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setShowRawPreview((v) => !v)}
+                  >
+                    {showRawPreview ? <EyeOff size={13} /> : <Eye size={13} />}
+                    <span>{showRawPreview ? 'ดูภาพที่ปิด PII แล้ว' : 'ดูภาพต้นฉบับ'}</span>
+                  </button>
+                </div>
+
+                {/* Preset Redaction Mode Selector */}
+                <div style={{ width: '100%', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <select
+                    aria-label="รูปแบบการปิดบังข้อมูลส่วนบุคคลบนภาพ"
+                    className="input-control"
+                    style={{ fontSize: 11.5, padding: '5px 8px', flex: 1 }}
+                    value={redactionPresetId}
+                    onChange={(e) => setRedactionPresetId(e.target.value)}
+                  >
+                    {REDACTION_PRESETS.map((rp) => (
+                      <option key={rp.id} value={rp.id}>
+                        {rp.label}
+                      </option>
+                    ))}
+                  </select>
+                  {customBoxes.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setCustomBoxes([])}
+                      title="ล้างกรอบที่ลากเพิ่มเอง"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Interactive Redaction Canvas Preview */}
+                <div
+                  ref={previewWrapRef}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  style={{
+                    position: 'relative',
+                    display: 'inline-block',
+                    maxWidth: '100%',
+                    cursor: showRawPreview ? 'default' : 'crosshair',
+                    userSelect: 'none',
+                  }}
+                  title={
+                    showRawPreview
+                      ? 'ภาพต้นฉบับ (เก็บไว้เฉพาะในเครื่องลูกค้า)'
+                      : 'ลากเมาส์บนภาพเพื่อคาดแถบดำปิดข้อมูลส่วนตัวเพิ่มก่อนส่ง Gemini Vision'
+                  }
+                >
+                  <img
+                    src={showRawPreview ? rawImageDataUrl : redactedImageDataUrl || rawImageDataUrl}
+                    alt="ตัวอย่างใบส่งของ SME ที่ผ่านการปิดบังข้อมูลส่วนบุคคล"
+                    className="upload-preview"
+                    draggable={false}
+                    style={{ display: 'block', maxHeight: 225 }}
+                  />
+                  {dragBox && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.min(dragBox.startX, dragBox.currX) * 100}%`,
+                        top: `${Math.min(dragBox.startY, dragBox.currY) * 100}%`,
+                        width: `${Math.abs(dragBox.currX - dragBox.startX) * 100}%`,
+                        height: `${Math.abs(dragBox.currY - dragBox.startY) * 100}%`,
+                        background: 'rgba(11, 25, 19, 0.72)',
+                        border: '1.5px solid #6ee7b7',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                </div>
+
+                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
+                  {showRawPreview
+                    ? 'ภาพต้นฉบับนี้จะไม่ถูกส่งออก Cloud — ระบบส่งเฉพาะภาพที่คาดแถบดำแล้วเท่านั้น'
+                    : 'ลากเมาส์บนภาพเพื่อคาดแถบดำปิดจุดอื่นเพิ่มได้ · เบอร์โทรและชื่อผู้ติดต่อถูกลบพิกเซลบนเครื่องแล้ว'}
+                </div>
+
                 <div className="upload-actions">
                   <button
                     type="button"
@@ -136,7 +310,10 @@ export default function OrderInputPanel({
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    onClick={() => onChangeImage(null)}
+                    onClick={() => {
+                      setCustomBoxes([]);
+                      onChangeImages({ raw: null, redacted: null, boxCount: 0 });
+                    }}
                   >
                     <Trash2 size={14} />
                     <span>ลบรูป</span>
@@ -150,7 +327,7 @@ export default function OrderInputPanel({
                   อัปโหลดภาพถ่ายใบส่งของ / แคปแชต LINE (PNG, JPG)
                   <br />
                   <span style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
-                    รองรับ Gemini Vision Multimodal + Offline Smart Fallback
+                    ระบบทำ Client-Side Visual PII Redaction บนเบราว์เซอร์ก่อนส่ง Gemini Vision
                   </span>
                 </div>
                 <div className="upload-actions">
@@ -272,7 +449,9 @@ export default function OrderInputPanel({
             <span>
               {isExtracting
                 ? 'กำลังแกะข้อมูล + ทำ PDPA Masking...'
-                : 'แกะออเดอร์ด้วย AI (Gemini + Offline Fallback)'}
+                : inputMode === 'image'
+                  ? 'ส่งภาพที่ปิด PII แล้วเข้า AI (Gemini Vision + Fallback)'
+                  : 'แกะออเดอร์ด้วย AI (Gemini + Offline Fallback)'}
             </span>
           </button>
         </div>
