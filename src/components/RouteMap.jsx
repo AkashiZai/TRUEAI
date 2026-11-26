@@ -1,8 +1,112 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Layers, Navigation } from 'lucide-react';
+import { isValidCoordinate, safeHexColor, sanitizePlainText } from '../engine/securityUtils';
 
 const DEFAULT_BKK_CENTER = [13.7456, 100.5652];
+
+/**
+ * Builds a pure DOM node for Leaflet tooltips/popups using strictly .textContent.
+ * Zero HTML string interpolation / zero innerHTML -> structurally immune to DOM-based XSS.
+ */
+function createTooltipNode(titleText, detailText) {
+  const wrap = document.createElement('div');
+  const titleEl = document.createElement('strong');
+  titleEl.textContent = sanitizePlainText(titleText, { maxLen: 100 });
+  wrap.appendChild(titleEl);
+  wrap.appendChild(document.createElement('br'));
+  wrap.appendChild(document.createTextNode(sanitizePlainText(detailText, { maxLen: 140 })));
+  return wrap;
+}
+
+function createStopPopupNode({
+  customerName,
+  matchedArea,
+  routeLabel,
+  routeColor,
+  itemsSummary,
+  weightKg,
+  eta,
+  timeWindow,
+}) {
+  const wrap = document.createElement('div');
+  wrap.style.fontFamily = 'IBM Plex Sans Thai, sans-serif';
+  wrap.style.fontSize = '12.5px';
+
+  const titleEl = document.createElement('strong');
+  titleEl.textContent = sanitizePlainText(customerName, { maxLen: 90, fallback: 'จุดส่งสินค้า' });
+  wrap.appendChild(titleEl);
+  wrap.appendChild(document.createElement('br'));
+
+  wrap.appendChild(
+    document.createTextNode(sanitizePlainText(matchedArea, { maxLen: 100, fallback: '-' }))
+  );
+  wrap.appendChild(document.createElement('br'));
+
+  const badgeEl = document.createElement('span');
+  badgeEl.style.color = safeHexColor(routeColor, '#0f5132');
+  badgeEl.style.fontWeight = '700';
+  badgeEl.textContent = sanitizePlainText(routeLabel, { maxLen: 80 });
+  wrap.appendChild(badgeEl);
+  wrap.appendChild(document.createElement('br'));
+
+  if (itemsSummary) {
+    wrap.appendChild(document.createTextNode(`สินค้า: ${sanitizePlainText(itemsSummary, { maxLen: 100 })} (`));
+    const wEl = document.createElement('b');
+    wEl.textContent = `${Number(weightKg) || 0} กก.`;
+    wrap.appendChild(wEl);
+    wrap.appendChild(document.createTextNode(')'));
+    wrap.appendChild(document.createElement('br'));
+
+    wrap.appendChild(document.createTextNode('ETA: '));
+    const etaEl = document.createElement('b');
+    etaEl.textContent = sanitizePlainText(eta, { maxLen: 16, fallback: '-' });
+    wrap.appendChild(etaEl);
+    if (timeWindow) {
+      wrap.appendChild(document.createTextNode(` (ช่วงเวลา ${sanitizePlainText(timeWindow, { maxLen: 24 })})`));
+    }
+  } else {
+    wrap.appendChild(document.createTextNode('น้ำหนัก: '));
+    const wEl = document.createElement('b');
+    wEl.textContent = `${Number(weightKg) || 0} กก.`;
+    wrap.appendChild(wEl);
+    wrap.appendChild(document.createTextNode(` · ETA ${sanitizePlainText(eta, { maxLen: 16, fallback: '-' })}`));
+  }
+
+  return wrap;
+}
+
+function createDepotPopupNode(depotName) {
+  const wrap = document.createElement('div');
+  wrap.style.fontFamily = 'IBM Plex Sans Thai, sans-serif';
+  wrap.style.fontSize = '12.5px';
+  const titleEl = document.createElement('strong');
+  titleEl.textContent = 'คลังสินค้าต้นทาง (Depot)';
+  wrap.appendChild(titleEl);
+  wrap.appendChild(document.createElement('br'));
+  wrap.appendChild(document.createTextNode(sanitizePlainText(depotName, { maxLen: 100 })));
+  return wrap;
+}
+
+function createSafeMarkerIcon(stopNumber, color, size, opacity = 1) {
+  const safeNum = String(Math.max(1, Math.min(999, Math.trunc(Number(stopNumber) || 1))));
+  const safeCol = safeHexColor(color, '#0f5132');
+  const safeOp = opacity === 1 ? '1' : '0.35';
+  const el = document.createElement('div');
+  el.className = 'gr-marker';
+  el.style.width = `${size}px`;
+  el.style.height = `${size}px`;
+  el.style.background = safeCol;
+  el.style.opacity = safeOp;
+  el.textContent = safeNum;
+
+  return L.divIcon({
+    className: '',
+    html: el,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
 
 export default function RouteMap({
   depot,
@@ -11,6 +115,7 @@ export default function RouteMap({
   onChangeMapViewMode,
   selectedVehicleId,
   onSelectVehicle,
+  forceOffline = false,
 }) {
   const mapElRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -31,6 +136,7 @@ export default function RouteMap({
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
+      referrerPolicy: 'no-referrer',
     }).addTo(map);
 
     layerGroupRef.current = L.layerGroup().addTo(map);
@@ -51,7 +157,7 @@ export default function RouteMap({
   useEffect(() => {
     const map = mapInstanceRef.current;
     const group = layerGroupRef.current;
-    if (!map || !group || !depot) return;
+    if (!map || !group || !depot || !isValidCoordinate(depot.lat, depot.lng)) return;
 
     group.clearLayers();
     const boundsPoints = [[depot.lat, depot.lng]];
@@ -71,28 +177,29 @@ export default function RouteMap({
           dashArray: '7, 7',
         })
           .bindTooltip(
-            `<strong>ก่อนจัดสาย: ${route.vehicleName}</strong><br/>ระยะทาง ${route.distanceKm} กม. · ${route.stops.length} จุด`,
+            createTooltipNode(
+              `ก่อนจัดสาย: ${route.vehicleName}`,
+              `ระยะทาง ${route.distanceKm} กม. · ${route.stops.length} จุด`
+            ),
             { sticky: true }
           )
           .addTo(group);
 
         if (!isOverlay) {
           route.stops.forEach((stop) => {
+            if (!isValidCoordinate(stop.lat, stop.lng)) return;
             boundsPoints.push([stop.lat, stop.lng]);
-            const icon = L.divIcon({
-              className: '',
-              html: `<div class="gr-marker" style="width:24px;height:24px;background:#b91c1c">${stop.stopNumber}</div>`,
-              iconSize: [24, 24],
-              iconAnchor: [12, 12],
-            });
+            const icon = createSafeMarkerIcon(stop.stopNumber, '#b91c1c', 24, 1);
             L.marker([stop.lat, stop.lng], { icon })
               .bindPopup(
-                `<div style="font-family:IBM Plex Sans Thai,sans-serif;font-size:12.5px">
-                  <strong>${stop.customerName}</strong><br/>
-                  ${stop.matchedArea}<br/>
-                  <span style="color:#b91c1c">ก่อนจัดสาย (${route.vehicleName} · จุดที่ ${stop.stopNumber})</span><br/>
-                  น้ำหนัก: <b>${stop.weightKg} กก.</b> · ETA ${stop.eta}
-                </div>`
+                createStopPopupNode({
+                  customerName: stop.customerName,
+                  matchedArea: stop.matchedArea,
+                  routeLabel: `ก่อนจัดสาย (${route.vehicleName} · จุดที่ ${stop.stopNumber})`,
+                  routeColor: '#b91c1c',
+                  weightKg: stop.weightKg,
+                  eta: stop.eta,
+                })
               )
               .addTo(group);
           });
@@ -105,14 +212,18 @@ export default function RouteMap({
       afterRoutes.forEach((route) => {
         if (!route.path?.length) return;
         const isDimmed = selectedVehicleId && selectedVehicleId !== route.vehicleId;
+        const safeColor = safeHexColor(route.color, '#0f5132');
 
         const poly = L.polyline(route.path, {
-          color: route.color,
+          color: safeColor,
           weight: isDimmed ? 3 : 4.5,
           opacity: isDimmed ? 0.25 : 0.92,
         })
           .bindTooltip(
-            `<strong>${route.vehicleName} (AI Optimized)</strong><br/>ระยะทาง ${route.distanceKm} กม. · บรรทุก ${route.loadPct}% (${route.totalWeightKg} กก.)`,
+            createTooltipNode(
+              `${route.vehicleName} (AI Optimized)`,
+              `ระยะทาง ${route.distanceKm} กม. · บรรทุก ${route.loadPct}% (${route.totalWeightKg} กก.)`
+            ),
             { sticky: true }
           )
           .addTo(group);
@@ -122,44 +233,40 @@ export default function RouteMap({
         });
 
         route.stops.forEach((stop) => {
+          if (!isValidCoordinate(stop.lat, stop.lng)) return;
           boundsPoints.push([stop.lat, stop.lng]);
-          const icon = L.divIcon({
-            className: '',
-            html: `<div class="gr-marker" style="width:26px;height:26px;background:${route.color};opacity:${
-              isDimmed ? 0.35 : 1
-            }">${stop.stopNumber}</div>`,
-            iconSize: [26, 26],
-            iconAnchor: [13, 13],
-          });
+          const icon = createSafeMarkerIcon(stop.stopNumber, safeColor, 26, isDimmed ? 0.35 : 1);
 
           L.marker([stop.lat, stop.lng], { icon })
             .bindPopup(
-              `<div style="font-family:IBM Plex Sans Thai,sans-serif;font-size:12.5px">
-                <strong>${stop.customerName}</strong><br/>
-                ${stop.matchedArea}<br/>
-                <span style="color:${route.color};font-weight:700">${route.vehicleName} · ลำดับส่งที่ ${stop.stopNumber}</span><br/>
-                สินค้า: ${stop.itemsSummary} (<b>${stop.weightKg} กก.</b>)<br/>
-                ETA: <b>${stop.eta}</b> (ช่วงเวลา ${stop.timeStart}–${stop.timeEnd})
-              </div>`
+              createStopPopupNode({
+                customerName: stop.customerName,
+                matchedArea: stop.matchedArea,
+                routeLabel: `${route.vehicleName} · ลำดับส่งที่ ${stop.stopNumber}`,
+                routeColor: safeColor,
+                itemsSummary: stop.itemsSummary,
+                weightKg: stop.weightKg,
+                eta: stop.eta,
+                timeWindow: `${stop.timeStart}–${stop.timeEnd}`,
+              })
             )
             .addTo(group);
         });
       });
     }
 
-    // 3. Draw Depot Marker on top
+    // 3. Draw Depot Marker on top (pure DOM element, zero innerHTML)
+    const depotEl = document.createElement('div');
+    depotEl.className = 'gr-depot-marker';
+    depotEl.textContent = 'คลังต้นทาง';
     const depotIcon = L.divIcon({
       className: '',
-      html: `<div class="gr-depot-marker">คลังต้นทาง</div>`,
+      html: depotEl,
       iconSize: [86, 26],
       iconAnchor: [43, 13],
     });
     L.marker([depot.lat, depot.lng], { icon: depotIcon, zIndexOffset: 500 })
-      .bindPopup(
-        `<div style="font-family:IBM Plex Sans Thai,sans-serif;font-size:12.5px">
-          <strong>คลังสินค้าต้นทาง (Depot)</strong><br/>${depot.name}
-        </div>`
-      )
+      .bindPopup(createDepotPopupNode(depot.name))
       .addTo(group);
 
     if (boundsPoints.length > 1) {
@@ -227,7 +334,7 @@ export default function RouteMap({
           {(mapViewMode === 'after' || mapViewMode === 'compare') &&
             afterRoutes.map((r) => (
               <span key={r.vehicleId} className="legend-item">
-                <span className="legend-swatch" style={{ background: r.color }} />
+                <span className="legend-swatch" style={{ background: safeHexColor(r.color) }} />
                 <span>
                   {r.vehicleName} ({r.distanceKm} กม.)
                 </span>
@@ -249,9 +356,11 @@ export default function RouteMap({
         <span>
           ถนนอ้างอิง:{' '}
           <strong>
-            {optimization?.osrmActive
-              ? 'OSRM Live Bangkok Street Network'
-              : 'Road-Adjusted Network (×1.32 Offline Safe)'}
+            {forceOffline
+              ? 'Local Road-Adjusted (×1.32 · OSRM Disabled in Offline Safe Mode)'
+              : optimization?.osrmActive
+                ? 'OSRM Live Bangkok Street Network'
+                : 'Road-Adjusted Network (×1.32 Offline Safe)'}
           </strong>
         </span>
       </div>

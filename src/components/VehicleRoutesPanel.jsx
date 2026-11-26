@@ -148,9 +148,14 @@ export default function VehicleRoutesPanel({
                   <span>คัดลอกส่ง LINE คนขับ</span>
                 </button>
                 <a
-                  href={route.googleMapsUrl}
+                  href={
+                    typeof route.googleMapsUrl === 'string' &&
+                    route.googleMapsUrl.startsWith('https://www.google.com/maps/')
+                      ? route.googleMapsUrl
+                      : '#'
+                  }
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="btn btn-ghost btn-sm"
                   style={{ textDecoration: 'none' }}
                 >

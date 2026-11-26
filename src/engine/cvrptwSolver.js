@@ -1,22 +1,35 @@
 /**
- * Pure Computer Science CVRPTW (Capacitated Vehicle Routing Problem with Time Windows)
- * & Load Consolidation Solver + Baseline FIFO Simulator + OSRM Road Geometry Enricher
+ * Hardened Pure Computer Science CVRPTW (Capacitated Vehicle Routing Problem with Time Windows)
+ * & Load Consolidation Solver + Baseline FIFO Simulator + Bounded OSRM Road Enricher
  *
- * Algorithms used:
- * 1) Baseline (Before): Naive FIFO arrival-order dispatcher split across fleet (how SMEs assign manually)
- * 2) Optimized (After):
- *    - Clarke-Wright Savings with Time-Window compatibility weighting (minimizes fleet count & empty miles)
- *    - Intra-Route 2-Opt Local Search (eliminates crossings, minimizes distance)
- *    - Inter-Route 1-0 Relocate Local Search (balances & tightens loops)
- *    - LIFO Cargo Loading Sequence (Stop #N inside -> Stop #1 at tailgate)
+ * Security invariants enforced:
+ * 1. Finite bounded numeric constraints & coordinate checks (zero NaN/Infinity/negative loadPct).
+ * 2. Bounded order count (<=100), O(1) Clarke-Wright route map, & capped 2-Opt/Relocate loops
+ *    -> Eliminates Theta(N^3) main-thread DoS freezes.
+ * 3. Strict Offline Safe Mode enforcement: zero external OSRM requests when `forceOffline === true`.
+ * 4. Bounded OSRM concurrency (<=4), stop-count cap, & strict sanity bounds on returned distance/geometry.
+ * 5. Safe Google Maps URL construction via URL/URLSearchParams with validated finite coordinates.
  */
 
-const BANGKOK_ROAD_CIRCUITY = 1.32; // Empirical urban Bangkok road-to-straight-line ratio
-const AVG_URBAN_SPEED_KMH = 24; // Realistic Bangkok commercial truck speed (km/h)
-const SERVICE_TIME_MIN = 10; // Average unloading time per stop (minutes)
+import { clampFinite, isValidCoordinate, MAX_ORDERS_PER_BATCH } from './securityUtils.js';
+
+const BANGKOK_ROAD_CIRCUITY = 1.32;
+const AVG_URBAN_SPEED_KMH = 24;
+const SERVICE_TIME_MIN = 10;
 const ROUTE_COLORS = ['#0f5132', '#1e40af', '#b45309', '#0e7490', '#6d28d9'];
+const MAX_TWO_OPT_PASSES = 20;
+const MAX_TWO_OPT_ITERS = 8000;
+const MAX_RELOCATE_ITERS = 10000;
+const MAX_OSRM_STOPS_PER_ROUTE = 25;
+const MAX_OSRM_TOTAL_ROUTES = 10;
+const MAX_OSRM_CONCURRENCY = 4;
+const MAX_OSRM_GEOMETRY_POINTS = 2500;
+const MAX_GMAPS_WAYPOINTS = 9;
 
 export function haversineKm(a, b) {
+  if (!a || !b || !isValidCoordinate(a.lat, a.lng) || !isValidCoordinate(b.lat, b.lng)) {
+    return 0;
+  }
   const R = 6371;
   const toRad = (deg) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
@@ -26,7 +39,9 @@ export function haversineKm(a, b) {
 
   const sinDLat = Math.sin(dLat / 2);
   const sinDLng = Math.sin(dLng / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  const rawH = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  // Clamp to [0, 1] to avoid floating-point overshoot causing Math.asin(NaN)
+  const h = Math.min(1, Math.max(0, rawH));
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
@@ -35,12 +50,22 @@ export function roadDistanceKm(a, b) {
 }
 
 export function timeToMin(hhmm = '08:00') {
-  const [h, m] = String(hhmm).split(':').map((n) => parseInt(n, 10) || 0);
-  return h * 60 + m;
+  if (typeof hhmm === 'string') {
+    const m = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (m) {
+      const h = parseInt(m[1], 10);
+      const min = parseInt(m[2], 10);
+      if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+        return h * 60 + min;
+      }
+    }
+  }
+  return 8 * 60;
 }
 
 export function minToTime(totalMin) {
-  const clamped = Math.max(0, Math.round(totalMin));
+  const safe = Number.isFinite(totalMin) ? totalMin : 8 * 60;
+  const clamped = Math.max(0, Math.round(safe));
   const h = Math.floor(clamped / 60) % 24;
   const m = clamped % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -57,7 +82,43 @@ function calcRouteDistance(stops, depot) {
 }
 
 function calcRouteWeight(stops) {
-  return stops.reduce((sum, s) => sum + (Number(s.weightKg) || 0), 0);
+  return stops.reduce((sum, s) => sum + clampFinite(s?.weightKg, 5, 5000, 150), 0);
+}
+
+function sanitizeOrdersAndFleet(rawOrders, rawDepot, rawFleetConfig) {
+  const depot = {
+    name: typeof rawDepot?.name === 'string' ? rawDepot.name : 'คลังสินค้าต้นทาง',
+    lat: isValidCoordinate(rawDepot?.lat, rawDepot?.lng) ? rawDepot.lat : 13.7456,
+    lng: isValidCoordinate(rawDepot?.lat, rawDepot?.lng) ? rawDepot.lng : 100.5652,
+  };
+
+  const fleetConfig = {
+    truckCount: Math.round(clampFinite(rawFleetConfig?.truckCount, 1, 50, 3)),
+    maxWeightKg: Math.round(clampFinite(rawFleetConfig?.maxWeightKg, 200, 20000, 1000)),
+  };
+
+  const seenIds = new Set();
+  const orders = (Array.isArray(rawOrders) ? rawOrders : [])
+    .slice(0, MAX_ORDERS_PER_BATCH)
+    .filter((o) => o && typeof o === 'object')
+    .map((o, idx) => {
+      let id = typeof o.id === 'string' && o.id ? o.id : `ord-safe-${idx + 1}`;
+      if (seenIds.has(id)) id = `${id}-${idx + 1}`;
+      seenIds.add(id);
+
+      const lat = isValidCoordinate(o.lat, o.lng) ? o.lat : depot.lat;
+      const lng = isValidCoordinate(o.lat, o.lng) ? o.lng : depot.lng;
+
+      return {
+        ...o,
+        id,
+        lat,
+        lng,
+        weightKg: Math.round(clampFinite(o.weightKg, 5, 5000, 150)),
+      };
+    });
+
+  return { orders, depot, fleetConfig };
 }
 
 /**
@@ -75,10 +136,11 @@ function evaluateRouteSchedule(stops, depot, departMin = 7 * 60 + 30) {
     const travelMin = (legKm / AVG_URBAN_SPEED_KMH) * 60;
     const rawArrival = currentMin + travelMin;
     const twStart = timeToMin(stop.timeStart);
-    const twEnd = timeToMin(stop.timeEnd);
+    const twEndRaw = timeToMin(stop.timeEnd);
+    const twEnd = twEndRaw >= twStart ? twEndRaw : twStart + 120;
 
     const startService = Math.max(rawArrival, twStart);
-    const isLate = rawArrival > twEnd + 5; // 5 min grace
+    const isLate = rawArrival > twEnd + 5;
     if (isLate) lateCount++;
 
     schedule.push({
@@ -101,20 +163,17 @@ function evaluateRouteSchedule(stops, depot, departMin = 7 * 60 + 30) {
     lateCount,
     departTime: minToTime(departMin),
     returnTime: minToTime(returnMin),
-    durationMin: Math.round(returnMin - departMin),
+    durationMin: Math.max(0, Math.round(returnMin - departMin)),
   };
 }
 
 /**
  * 1) BEFORE BASELINE: Naive Manual SME Dispatch (FIFO arrival order across available fleet)
- * Models how an admin reads down the LINE chat and hands stops to drivers sequentially
- * without geographic clustering or capacity consolidation.
  */
 function buildBaselineFIFO(orders, depot, fleetConfig) {
-  const { truckCount = 3, maxWeightKg = 1000 } = fleetConfig;
+  const { truckCount, maxWeightKg } = fleetConfig;
+  if (!orders.length) return [];
   const targetTrucks = Math.max(1, Math.min(truckCount, orders.length));
-
-  // Distribute orders in raw LINE arrival order across the available trucks (round-robin with capacity guard)
   const buckets = Array.from({ length: targetTrucks }, () => []);
 
   for (let i = 0; i < orders.length; i++) {
@@ -124,7 +183,6 @@ function buildBaselineFIFO(orders, depot, fleetConfig) {
     if (calcRouteWeight(buckets[preferredIdx]) + order.weightKg <= maxWeightKg) {
       buckets[preferredIdx].push(order);
     } else {
-      // Find any truck with room, or open overflow truck
       const fitIdx = buckets.findIndex(
         (b) => calcRouteWeight(b) + order.weightKg <= maxWeightKg
       );
@@ -142,16 +200,21 @@ function buildBaselineFIFO(orders, depot, fleetConfig) {
 }
 
 /**
- * 2) AFTER OPTIMIZED: Clarke-Wright Savings + Time-Window + 2-Opt + Inter-Route Relocate
+ * 2) AFTER OPTIMIZED: Clarke-Wright Savings (O(N^2) with route Map) + Time-Window + Bounded 2-Opt + Relocate
  */
 function solveCVRPTW(orders, depot, fleetConfig) {
-  const { maxWeightKg = 1000 } = fleetConfig;
+  const { maxWeightKg } = fleetConfig;
   if (!orders.length) return { routes: [], iterations: 0 };
 
   let iterations = 0;
 
-  // Step A: Initialize each order as its own route
-  let routes = orders.map((order) => [order]);
+  // Step A: Initialize each order as its own route with O(1) membership & weight tracking
+  const routeMap = new Map();
+  const orderToRouteId = new Map();
+  orders.forEach((order, idx) => {
+    routeMap.set(idx, { stops: [order], weight: order.weightKg });
+    orderToRouteId.set(order.id, idx);
+  });
 
   // Step B: Compute Clarke-Wright Savings pairs with Time-Window affinity
   const savings = [];
@@ -162,7 +225,6 @@ function solveCVRPTW(orders, depot, fleetConfig) {
       const distSaving =
         roadDistanceKm(depot, a) + roadDistanceKm(depot, b) - roadDistanceKm(a, b);
 
-      // Mild time-window compatibility bonus (keeps morning jobs grouped with morning jobs)
       const midA = (timeToMin(a.timeStart) + timeToMin(a.timeEnd)) / 2;
       const midB = (timeToMin(b.timeStart) + timeToMin(b.timeEnd)) / 2;
       const twGapHours = Math.abs(midA - midB) / 60;
@@ -173,20 +235,21 @@ function solveCVRPTW(orders, depot, fleetConfig) {
   }
   savings.sort((x, y) => y.score - x.score);
 
-  // Step C: Merge routes greedily while respecting capacity
+  // Step C: O(1) lookup greedy route merges (eliminates Theta(N^3) array scanning)
   for (const pair of savings) {
     iterations++;
-    const rIdxA = routes.findIndex((r) => r.some((o) => o.id === pair.idA));
-    const rIdxB = routes.findIndex((r) => r.some((o) => o.id === pair.idB));
-    if (rIdxA === -1 || rIdxB === -1 || rIdxA === rIdxB) continue;
+    const rIdA = orderToRouteId.get(pair.idA);
+    const rIdB = orderToRouteId.get(pair.idB);
+    if (rIdA === undefined || rIdB === undefined || rIdA === rIdB) continue;
 
-    const routeA = routes[rIdxA];
-    const routeB = routes[rIdxB];
+    const entryA = routeMap.get(rIdA);
+    const entryB = routeMap.get(rIdB);
+    if (!entryA || !entryB) continue;
 
-    // Check capacity constraint
-    if (calcRouteWeight(routeA) + calcRouteWeight(routeB) > maxWeightKg) continue;
+    if (entryA.weight + entryB.weight > maxWeightKg) continue;
 
-    // Only merge at route endpoints (classic Clarke-Wright)
+    const routeA = entryA.stops;
+    const routeB = entryB.stops;
     const aIsStart = routeA[0].id === pair.idA;
     const aIsEnd = routeA[routeA.length - 1].id === pair.idA;
     const bIsStart = routeB[0].id === pair.idB;
@@ -201,23 +264,29 @@ function solveCVRPTW(orders, depot, fleetConfig) {
     else if (aIsStart && bIsStart) merged = [...[...routeA].reverse(), ...routeB];
 
     if (merged) {
-      // Orient direction for better Time-Window flow
       const fwd = evaluateRouteSchedule(merged, depot);
       const revList = [...merged].reverse();
       const rev = evaluateRouteSchedule(revList, depot);
       const bestDir = rev.lateCount < fwd.lateCount ? revList : merged;
 
-      const keepIdx = Math.min(rIdxA, rIdxB);
-      const dropIdx = Math.max(rIdxA, rIdxB);
-      routes[keepIdx] = bestDir;
-      routes.splice(dropIdx, 1);
+      const keepId = Math.min(rIdA, rIdB);
+      const dropId = Math.max(rIdA, rIdB);
+      routeMap.set(keepId, { stops: bestDir, weight: entryA.weight + entryB.weight });
+      routeMap.delete(dropId);
+      for (const stop of bestDir) {
+        orderToRouteId.set(stop.id, keepId);
+      }
     }
   }
 
-  // Step D: Bin-Packing Consolidation Pass (if two small routes can merge to eliminate a truck)
+  let routes = Array.from(routeMap.values(), (entry) => entry.stops);
+
+  // Step D: Bin-Packing Consolidation Pass (eliminate underutilized trucks)
   let consolidated = true;
-  while (consolidated && routes.length > 1) {
+  let consolidateGuard = 0;
+  while (consolidated && routes.length > 1 && consolidateGuard < MAX_ORDERS_PER_BATCH) {
     consolidated = false;
+    consolidateGuard++;
     routes.sort((a, b) => calcRouteWeight(a) - calcRouteWeight(b));
     outer: for (let i = 0; i < routes.length; i++) {
       for (let j = routes.length - 1; j > i; j--) {
@@ -233,27 +302,28 @@ function solveCVRPTW(orders, depot, fleetConfig) {
     }
   }
 
-  // Step E: Intra-Route 2-Opt Local Search (untangle crossings & minimize road distance)
+  // Step E: Bounded Intra-Route 2-Opt Local Search
   routes = routes.map((route) => {
     const res = twoOptImprove(route, depot);
     iterations += res.iters;
     return res.route;
   });
 
-  // Step F: Inter-Route 1-0 Relocate Local Search (move stop to neighbor truck if strictly shorter)
+  // Step F: Bounded Inter-Route 1-0 Relocate Local Search
   let improved = true;
   let relocatePasses = 0;
-  while (improved && relocatePasses < 25) {
+  let relocateIters = 0;
+  while (improved && relocatePasses < 25 && relocateIters < MAX_RELOCATE_ITERS) {
     improved = false;
     relocatePasses++;
 
-    for (let a = 0; a < routes.length; a++) {
+    for (let a = 0; a < routes.length && relocateIters < MAX_RELOCATE_ITERS; a++) {
       if (routes[a].length <= 1) continue;
-      for (let i = 0; i < routes[a].length; i++) {
+      for (let i = 0; i < routes[a].length && relocateIters < MAX_RELOCATE_ITERS; i++) {
         const stop = routes[a][i];
         const currDistA = calcRouteDistance(routes[a], depot);
 
-        for (let b = 0; b < routes.length; b++) {
+        for (let b = 0; b < routes.length && relocateIters < MAX_RELOCATE_ITERS; b++) {
           if (a === b) continue;
           if (calcRouteWeight(routes[b]) + stop.weightKg > maxWeightKg) continue;
 
@@ -261,11 +331,11 @@ function solveCVRPTW(orders, depot, fleetConfig) {
           const candA = routes[a].filter((_, idx) => idx !== i);
           const newDistA = calcRouteDistance(candA, depot);
 
-          // Find best insertion position in route B
           let bestPos = -1;
-          let bestGain = 0.2; // Require at least 0.2 km improvement
+          let bestGain = 0.2;
           for (let pos = 0; pos <= routes[b].length; pos++) {
             iterations++;
+            relocateIters++;
             const candB = [...routes[b].slice(0, pos), stop, ...routes[b].slice(pos)];
             const newDistB = calcRouteDistance(candB, depot);
             const gain = currDistA + currDistB - (newDistA + newDistB);
@@ -273,6 +343,7 @@ function solveCVRPTW(orders, depot, fleetConfig) {
               bestGain = gain;
               bestPos = pos;
             }
+            if (relocateIters >= MAX_RELOCATE_ITERS) break;
           }
 
           if (bestPos !== -1) {
@@ -315,7 +386,7 @@ function nearestNeighborOrder(stops, depot) {
     let bestScore = Infinity;
     for (let i = 0; i < remaining.length; i++) {
       const dist = roadDistanceKm(curr, remaining[i]);
-      const twBias = (timeToMin(remaining[i].timeEnd) - 480) / 60 * 0.45;
+      const twBias = ((timeToMin(remaining[i].timeEnd) - 480) / 60) * 0.45;
       const score = dist + twBias;
       if (score < bestScore) {
         bestScore = score;
@@ -334,12 +405,14 @@ function twoOptImprove(route, depot) {
   let best = [...route];
   let bestDist = calcRouteDistance(best, depot);
   let iters = 0;
+  let passes = 0;
   let improved = true;
 
-  while (improved) {
+  while (improved && passes < MAX_TWO_OPT_PASSES && iters < MAX_TWO_OPT_ITERS) {
     improved = false;
-    for (let i = 0; i < best.length - 1; i++) {
-      for (let k = i + 1; k < best.length; k++) {
+    passes++;
+    for (let i = 0; i < best.length - 1 && iters < MAX_TWO_OPT_ITERS; i++) {
+      for (let k = i + 1; k < best.length && iters < MAX_TWO_OPT_ITERS; k++) {
         iters++;
         const candidate = [
           ...best.slice(0, i),
@@ -358,17 +431,40 @@ function twoOptImprove(route, depot) {
   return { route: best, iters };
 }
 
+function buildSafeGoogleMapsUrl(depot, schedule) {
+  const url = new URL('https://www.google.com/maps/dir/');
+  const originCoord = `${depot.lat.toFixed(6)},${depot.lng.toFixed(6)}`;
+  url.searchParams.set('api', '1');
+  url.searchParams.set('origin', originCoord);
+  url.searchParams.set('destination', originCoord);
+  const waypoints = schedule
+    .slice(0, MAX_GMAPS_WAYPOINTS)
+    .filter((s) => isValidCoordinate(s.lat, s.lng))
+    .map((s) => `${s.lat.toFixed(6)},${s.lng.toFixed(6)}`)
+    .join('|');
+  if (waypoints) {
+    url.searchParams.set('waypoints', waypoints);
+  }
+  url.searchParams.set('travelmode', 'driving');
+  return url.toString();
+}
+
 function finalizeVehicleRoute(stops, depot, idx, maxWeightKg, isBaseline) {
+  const safeMaxWeight = Math.max(200, maxWeightKg);
   const totalWeightKg = calcRouteWeight(stops);
   const distanceKm = Math.round(calcRouteDistance(stops, depot) * 100) / 100;
-  const loadPct = Math.min(100, Math.round((totalWeightKg / maxWeightKg) * 1000) / 10);
+  const loadPct = clampFinite(
+    Math.round((totalWeightKg / safeMaxWeight) * 1000) / 10,
+    0,
+    100,
+    0
+  );
   const { schedule, lateCount, departTime, returnTime, durationMin } = evaluateRouteSchedule(
     stops,
     depot,
     7 * 60 + 30
   );
 
-  // LIFO Loading Sequence: Last stop goes deepest inside truck, Stop #1 sits right at tailgate!
   const lifoOrder = [...schedule].reverse().map((stop, loadIdx) => ({
     loadRank: loadIdx + 1,
     stopNumber: stop.stopNumber,
@@ -382,18 +478,13 @@ function finalizeVehicleRoute(stops, depot, idx, maxWeightKg, isBaseline) {
           : `ชั้นที่ ${loadIdx + 1}`,
   }));
 
-  // Straight/fallback polyline coordinates: Depot -> Stops -> Depot
   const fallbackPath = [
     [depot.lat, depot.lng],
     ...schedule.map((s) => [s.lat, s.lng]),
     [depot.lat, depot.lng],
   ];
 
-  // Google Maps multi-stop deep link for the driver
-  const waypoints = schedule.map((s) => `${s.lat},${s.lng}`).join('|');
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${depot.lat},${depot.lng}&destination=${depot.lat},${depot.lng}&waypoints=${encodeURIComponent(
-    waypoints
-  )}&travelmode=driving`;
+  const googleMapsUrl = buildSafeGoogleMapsUrl(depot, schedule);
 
   return {
     vehicleId: isBaseline ? `before-truck-${idx + 1}` : `truck-${idx + 1}`,
@@ -402,7 +493,7 @@ function finalizeVehicleRoute(stops, depot, idx, maxWeightKg, isBaseline) {
     stops: schedule,
     lifoOrder,
     totalWeightKg,
-    maxWeightKg,
+    maxWeightKg: safeMaxWeight,
     loadPct,
     distanceKm,
     lateCount,
@@ -418,8 +509,13 @@ function finalizeVehicleRoute(stops, depot, idx, maxWeightKg, isBaseline) {
 /**
  * Full Fleet Optimization Runner: returns both Before (Baseline) and After (AI CVRPTW) plans.
  */
-export function runFleetOptimization(orders, depot, fleetConfig) {
+export function runFleetOptimization(rawOrders, rawDepot, rawFleetConfig) {
   const t0 = performance.now();
+  const { orders, depot, fleetConfig } = sanitizeOrdersAndFleet(
+    rawOrders,
+    rawDepot,
+    rawFleetConfig
+  );
 
   const beforeRoutes = buildBaselineFIFO(orders, depot, fleetConfig);
   const { routes: afterRoutes, iterations } = solveCVRPTW(orders, depot, fleetConfig);
@@ -457,30 +553,85 @@ export function runFleetOptimization(orders, depot, fleetConfig) {
   };
 }
 
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length).fill(null);
+  let nextIdx = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      results[idx] = await worker(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Optional Live Road Geometry Enrichment via OSRM public driving server.
- * Fetches actual Bangkok street polylines for both Before and After routes.
- * Fails gracefully (silently keeps fallback polylines) if offline or rate-limited.
+ * Security controls:
+ * - Strictly skipped when `forceOffline === true` (zero external coordinate leakage).
+ * - Caps route count, stop count, concurrency, geometry point count, and sanity-checks returned distance.
  */
-export async function enrichWithOSRMRoads(result, depot) {
+export async function enrichWithOSRMRoads(result, depot, { forceOffline = false } = {}) {
+  if (forceOffline || !result || !depot || !isValidCoordinate(depot.lat, depot.lng)) {
+    return { ...result, osrmActive: false };
+  }
+
+  const allRoutes = [...(result.beforeRoutes || []), ...(result.afterRoutes || [])];
+  if (allRoutes.length === 0 || allRoutes.length > MAX_OSRM_TOTAL_ROUTES) {
+    return { ...result, osrmActive: false };
+  }
+
   const fetchOneRoute = async (route) => {
-    const pts = [[depot.lng, depot.lat], ...route.stops.map((s) => [s.lng, s.lat]), [depot.lng, depot.lat]];
+    if (!route?.stops?.length || route.stops.length > MAX_OSRM_STOPS_PER_ROUTE) {
+      return null;
+    }
+    if (!route.stops.every((s) => isValidCoordinate(s.lat, s.lng))) {
+      return null;
+    }
+
+    const pts = [
+      [depot.lng, depot.lat],
+      ...route.stops.map((s) => [s.lng, s.lat]),
+      [depot.lng, depot.lat],
+    ];
     const coordStr = pts.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(';');
     const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4500);
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, { signal: controller.signal, referrerPolicy: 'no-referrer' });
       if (!res.ok) return null;
       const json = await res.json();
       const osrmRoute = json?.routes?.[0];
-      if (!osrmRoute?.geometry?.coordinates) return null;
+      const rawCoords = osrmRoute?.geometry?.coordinates;
+      const rawMeters = Number(osrmRoute?.distance);
 
-      return {
-        path: osrmRoute.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-        distanceKm: Math.round((osrmRoute.distance / 1000) * 100) / 100,
-      };
+      if (!Array.isArray(rawCoords) || rawCoords.length < 2 || rawCoords.length > MAX_OSRM_GEOMETRY_POINTS) {
+        return null;
+      }
+      if (!Number.isFinite(rawMeters) || rawMeters <= 0) {
+        return null;
+      }
+
+      const distanceKm = Math.round((rawMeters / 1000) * 100) / 100;
+      // Sanity-bound returned OSRM distance against Haversine baseline (prevents poisoned ESG figures)
+      const baselineKm = Math.max(0.5, route.distanceKm || 1);
+      if (distanceKm < baselineKm * 0.35 || distanceKm > baselineKm * 4.5) {
+        return null;
+      }
+
+      const path = [];
+      for (const pair of rawCoords) {
+        if (!Array.isArray(pair) || pair.length < 2) return null;
+        const lng = Number(pair[0]);
+        const lat = Number(pair[1]);
+        if (!isValidCoordinate(lat, lng)) return null;
+        path.push([lat, lng]);
+      }
+
+      return { path, distanceKm };
     } catch {
       return null;
     } finally {
@@ -489,10 +640,10 @@ export async function enrichWithOSRMRoads(result, depot) {
   };
 
   try {
-    const [beforeGeo, afterGeo] = await Promise.all([
-      Promise.all(result.beforeRoutes.map(fetchOneRoute)),
-      Promise.all(result.afterRoutes.map(fetchOneRoute)),
-    ]);
+    const beforeCount = result.beforeRoutes.length;
+    const fetched = await runWithConcurrency(allRoutes, MAX_OSRM_CONCURRENCY, fetchOneRoute);
+    const beforeGeo = fetched.slice(0, beforeCount);
+    const afterGeo = fetched.slice(beforeCount);
 
     const allSucceeded = beforeGeo.every(Boolean) && afterGeo.every(Boolean);
 

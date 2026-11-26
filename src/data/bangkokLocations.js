@@ -62,18 +62,39 @@ export const BANGKOK_LOCATIONS = [
   { keywords: ['เยาวราช', 'สำเพ็ง', 'หัวลำโพง', 'yaowarat'], label: 'เยาวราช–สำเพ็ง', lat: 13.7413, lng: 100.5082 },
 ];
 
+const ASCII_KW_RE = /^[a-z0-9 ]+$/;
+
+function matchesKeyword(normalizedText, rawKeyword) {
+  const kw = rawKeyword.toLowerCase();
+  if (!ASCII_KW_RE.test(kw)) {
+    return normalizedText.includes(kw);
+  }
+  let idx = normalizedText.indexOf(kw);
+  while (idx !== -1) {
+    const before = idx > 0 ? normalizedText[idx - 1] : ' ';
+    const after = idx + kw.length < normalizedText.length ? normalizedText[idx + kw.length] : ' ';
+    const beforeOk = !/[a-z0-9]/.test(before);
+    const afterOk = !/[a-z0-9]/.test(after);
+    if (beforeOk && afterOk) return true;
+    idx = normalizedText.indexOf(kw, idx + 1);
+  }
+  return false;
+}
+
 /**
  * Matches a Thai or English address string against the Bangkok Gazetteer.
  * Specific district/road keywords always outrank broad province fallbackKeywords.
+ * Never reflects raw untrusted input in `label` when unmatched (prevents XSS & PII leaks).
  */
 export function matchBangkokLocation(text = '') {
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const safeInput = typeof text === 'string' ? text.slice(0, 500) : '';
+  const normalized = safeInput.toLowerCase().replace(/\s+/g, ' ').trim();
   let bestMatch = null;
   let bestScore = 0;
 
   for (const loc of BANGKOK_LOCATIONS) {
     for (const kw of loc.keywords) {
-      if (normalized.includes(kw.toLowerCase())) {
+      if (matchesKeyword(normalized, kw)) {
         const score = 100 + kw.length;
         if (score > bestScore) {
           bestMatch = loc;
@@ -83,7 +104,7 @@ export function matchBangkokLocation(text = '') {
     }
     if (loc.fallbackKeywords) {
       for (const kw of loc.fallbackKeywords) {
-        if (normalized.includes(kw.toLowerCase())) {
+        if (matchesKeyword(normalized, kw)) {
           const score = 10 + kw.length;
           if (score > bestScore) {
             bestMatch = loc;
@@ -114,7 +135,7 @@ export function matchBangkokLocation(text = '') {
 
   return {
     matched: false,
-    label: text || 'ไม่พบพิกัดชัดเจน (ต้องตรวจสอบ)',
+    label: 'ไม่พบพิกัดชัดเจน (ต้องตรวจสอบ)',
     lat: Number((13.746 + offsetLat).toFixed(4)),
     lng: Number((100.558 + offsetLng).toFixed(4)),
     locationConfidence: 62,

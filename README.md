@@ -9,27 +9,36 @@ GreenRoute AI เปลี่ยนแชตสั่งของ LINE และ
 
 1. **Layer 1 — Multimodal Order Extraction & PDPA Privacy (`src/engine/orderExtractor.js`, `src/engine/piiMasker.js`, `src/engine/imageRedactor.js`)**
    - **On-Device & Serverless GPU PDPA (Production):** รองรับ **Google Gemma 3n** (Google AI Edge / MediaPipe) รันบนอุปกรณ์โดยตรง และ **Google Gemma 3 (4B/12B Vision)** บน **Google Cloud Run Serverless GPU** (Private VPC · Scale-to-Zero) ข้อมูลและรูปบิลไม่หลุดออกภายนอก
-   - **Cloud API + Client-Side Visual Redaction (Live Prototype):** ทำ **Text PII Masking** (`[PHONE_01]`) และ **Client-Side Canvas Visual Redaction** คาดแถบดำลบคอลัมน์เบอร์โทรบนภาพในเครื่องก่อนส่ง **Google Gemini 2.5 Flash API**
-   - **Auto-Failover:** มี **Offline Smart Fallback** ภาษาไทยในตัว หากไม่ได้ใส่ API Key, เน็ตหลุด, หรือติด Rate Limit (`HTTP 429`) ระบบสลับออฟไลน์อัตโนมัติทันที
-   - **Human-in-the-Loop:** ไฮไลต์รายการที่ AI มั่นใจต่ำกว่า 85% ให้แอดมินตรวจแก้ก่อนจัดสาย
+   - **Cloud API + Fail-Closed Visual & Text Redaction (Live Prototype):**
+     - **Text PII Masking:** ใช้ Per-Line Cryptographic Nonce Vault ป้องกันการปลอม Token ข้ามลูกค้า ครอบคลุมเบอร์โทร (+66 / 02–09 / เลขไทย ๐–๙), บัตรประชาชน 13 หลัก, เลขบัญชี, LINE ID, อีเมล และชื่อ–นามสกุลบุคคล
+     - **Visual Image Redaction:** ตรวจ Magic Bytes ไฟล์ภาพ (รองรับเฉพาะ PNG/JPEG/WebP ไม่รับ SVG), ลบ EXIF/GPS 100% ผ่าน Canvas พร้อมจำกัดความละเอียดสูงสุด 2048px และทำงานแบบ **Fail-Closed** (บล็อกการส่งภาพทันทีหาก Redaction ไม่เสร็จสมบูรณ์)
+     - **Prompt Security:** แยก `systemInstruction` + บังคับ `responseSchema` ของ **Google Gemini 2.5 Flash API** และส่ง Key ผ่าน `x-goog-api-key` Header (ไม่ใส่ใน URL Query String)
+   - **Auto-Failover & Strict Offline Mode:** มี **Offline Smart Fallback** ภาษาไทยในตัว และเมื่อเปิดโหมด **Safe Demo Mode (`forceOffline`)** ระบบปิดการส่งข้อมูลออกทั้ง Gemini API และ OSRM Routing ภายนอก 100%
 2. **Layer 2 — Google OR-Tools CVRPTW & Maps Optimization (`src/engine/cvrptwSolver.js`)**
    - ไม่ให้ LLM คิดเลข/จัดสายเอง (ป้องกัน Hallucination 100%)
-   - ใช้แนวคิด **Google OR-Tools (CVRPTW)** (*Clarke-Wright Savings + Time-Window Affinity + Bin-Packing Consolidation + 2-Opt + 1-0 Relocate*) ลดระยะทางและยุบเที่ยวรถเปล่า พร้อมต่อยอด **Google Maps Platform (Routes API / Route Optimization API)**
-   - สร้าง **ลำดับยกสินค้าขึ้นรถแบบ LIFO** และลิงก์นำทาง **Google Maps** หลายจุดส่งเข้า LINE คนขับทันที
+   - ใช้แนวคิด **Google OR-Tools (CVRPTW)** (*Clarke-Wright Savings $O(N^2)$ + Time-Window Affinity + Bin-Packing Consolidation + Bounded 2-Opt + 1-0 Relocate*) ลดระยะทางและยุบเที่ยวรถเปล่า พร้อมต่อยอด **Google Maps Platform (Routes API / Route Optimization API)**
+   - แสดงผลแผนที่ด้วย Leaflet DOM `.textContent` ล้วน (**Zero `innerHTML` / ป้องกัน DOM XSS**) และสร้าง **ลำดับยกสินค้าขึ้นรถแบบ LIFO** + ลิงก์นำทาง **Google Maps** หลายจุดส่งเข้า LINE คนขับ
 3. **Layer 3 — Google Cloud & Deterministic TGO Carbon Engine (`src/engine/tgoCarbonEngine.js`)**
    - อ้างอิงค่า Emission Factor น้ำมันดีเซลของ **องค์การบริหารจัดการก๊าซเรือนกระจก (อบก. / TGO)**:
      - Scope 1 (Mobile Combustion): `2.7403 kgCO2e / ลิตร`
      - Well-to-Wheel / Scope 3 (สำหรับรายงานคู่ค้า B2B): `3.0326 kgCO2e / ลิตร`
-   - ต่อยอดจัดเก็บ Geocoding Cache ลูกค้าประจำ (70–80%) บน **Cloud Firestore** และรองรับการพิมพ์ **รายงาน ESG A4 PDF** / ดาวน์โหลด **ESG JSON**
+   - ไฟล์ **B2B ESG JSON** ตัดข้อมูลส่วนบุคคลของลูกค้าออกอัตโนมัติ (PDPA-Anonymized Export) และรองรับการพิมพ์รายงาน **A4 PDF**
 
-## วิธีรันใช้งานบนเครื่อง (Local Setup)
+## มาตรฐานความปลอดภัย (Security Hardening)
+
+- **Strict CSP & Referrer Policy (`index.html`):** บังคับ `script-src 'self'`, `object-src 'none'`, `referrer: no-referrer` และบันเดิล Leaflet CSS ไว้ในโปรเจกต์โดยไม่พึ่งพา CDN `unpkg.com`
+- **No Static Bundled Keys:** เก็บ Gemini API Key ชั่วคราวเฉพาะใน `sessionStorage` ของแท็บปัจจุบัน (ล้างอัตโนมัติเมื่อปิดแท็บ) และห้ามใส่ API Key ใน `.env` ฝั่ง Frontend เพื่อป้องกัน Secret หลุดเข้า static bundle
+- **CI/CD Supply-Chain Security (`.github/workflows/deploy.yml`):** Pin GitHub Actions ด้วย Commit SHA ครบทุกตัว, แยก `permissions` น้อยที่สุดราย Job, ใช้ `persist-credentials: false`, `npm ci --ignore-scripts`, และบังคับรัน `npm run lint` + `npm run test:security` ก่อน Deploy ทุกครั้ง
+
+## วิธีรันใช้งานและทดสอบความปลอดภัยบนเครื่อง (Local Setup)
 
 ```bash
-npm install
+npm ci --ignore-scripts
+npm run lint
+npm run test:security
 npm run dev
 ```
 
 ### การตั้งค่า Google Gemini API Key (ไม่บังคับ)
-- กดปุ่ม **API Key** มุมขวาบนในหน้าเว็บเพื่อวาง Gemini API Key จาก Google AI Studio (เก็บไว้เฉพาะใน `localStorage` ของเบราว์เซอร์)
-- หรือสร้างไฟล์ `.env` แล้วระบุ `VITE_GEMINI_API_KEY=your_api_key_here`
-- หากไม่ได้ใส่ Key หรือเปิด **Safe Demo Mode** ระบบจะใช้ **Offline Smart Fallback** ทำงานได้ครบทุกฟีเจอร์ทันที
+- กดปุ่ม **API Key** มุมขวาบนในหน้าเว็บเพื่อวาง Gemini API Key จาก Google AI Studio (เก็บชั่วคราวเฉพาะใน `sessionStorage` ของแท็บปัจจุบัน และส่งผ่าน Header `x-goog-api-key`)
+- หากไม่ได้ใส่ Key หรือเปิด **Safe Demo Mode** ระบบจะใช้ **Offline Smart Fallback** ทำงานฝั่งเครื่องได้ครบทุกฟีเจอร์ทันที

@@ -1,5 +1,7 @@
-import { Download, Leaf, Printer, X } from 'lucide-react';
+import { Download, Leaf, Printer, ShieldCheck, X } from 'lucide-react';
 import { TGO_CONSTANTS } from '../engine/tgoCarbonEngine';
+import { stripPIIForExport } from '../engine/piiMasker';
+import { clampFinite } from '../engine/securityUtils';
 
 const REPORT_DATE_STR = new Date().toLocaleDateString('th-TH', {
   year: 'numeric',
@@ -19,10 +21,14 @@ export default function CarbonReportModal({
 
   const { distance, fuel, carbon, fleet } = metrics;
   const todayStr = REPORT_DATE_STR;
+  const safeKmPerL = clampFinite(fleetConfig?.fuelKmPerLiter, 2, 30, 9.0);
+  const safeDieselPrice = clampFinite(fleetConfig?.dieselPricePerLiter, 10, 100, 33.0);
 
   const handleDownloadJson = () => {
+    // PDPA-Safe B2B ESG Export: never include unmasked customer names, phone numbers, or raw chat text
     const payload = {
       reportTitle: 'GreenRoute AI — TGO Carbon Reduction & Green Logistics Audit Report',
+      privacyCompliance: 'PDPA-Anonymized B2B Scope 3 Export (Zero Customer PII)',
       generatedAt: new Date().toISOString(),
       organization: preset.businessName,
       depot: preset.depot.name,
@@ -31,17 +37,23 @@ export default function CarbonReportModal({
         scope1DieselKgCo2ePerLiter: TGO_CONSTANTS.DIESEL_EF_SCOPE1,
         wellToWheelScope3DieselKgCo2ePerLiter: TGO_CONSTANTS.DIESEL_EF_WTW_SCOPE3,
       },
-      fleetAssumptions: fleetConfig,
+      fleetAssumptions: {
+        vehicleType: fleetConfig.vehicleType,
+        maxWeightKg: clampFinite(fleetConfig.maxWeightKg, 200, 20000, 1000),
+        fuelKmPerLiter: safeKmPerL,
+        dieselPricePerLiter: safeDieselPrice,
+      },
       comparisonMetrics: metrics,
-      optimizedRoutes: optimization.afterRoutes.map((r) => ({
+      optimizedRoutes: optimization.afterRoutes.map((r, rIdx) => ({
+        vehicleId: `VEH-${String(rIdx + 1).padStart(2, '0')}`,
         vehicle: r.vehicleName,
         distanceKm: r.distanceKm,
         totalWeightKg: r.totalWeightKg,
         loadUtilizationPct: r.loadPct,
-        stops: r.stops.map((s) => ({
-          stopNumber: s.stopNumber,
-          customer: s.customerName,
-          area: s.matchedArea,
+        stopCount: r.stops.length,
+        anonymizedStops: r.stops.map((s) => ({
+          stopId: `STOP-${String(s.stopNumber).padStart(2, '0')}`,
+          zoneSummary: stripPIIForExport(s.matchedArea || '-'),
           weightKg: s.weightKg,
           eta: s.eta,
         })),
@@ -56,7 +68,7 @@ export default function CarbonReportModal({
     a.href = url;
     a.download = `greenroute-tgo-report-${preset.id}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -117,8 +129,8 @@ export default function CarbonReportModal({
 • แหล่งอ้างอิง: ${TGO_CONSTANTS.REFERENCE_LABEL}
 • EF น้ำมันดีเซล (Scope 1 Mobile Combustion) = ${TGO_CONSTANTS.DIESEL_EF_SCOPE1} kgCO2e / ลิตร
 • EF น้ำมันดีเซล (Well-to-Wheel / Scope 3)  = ${TGO_CONSTANTS.DIESEL_EF_WTW_SCOPE3} kgCO2e / ลิตร
-• สมมติฐานฟลีต: ${fleetConfig.vehicleType} | อัตราสิ้นเปลือง ${fleetConfig.fuelKmPerLiter} กม./ลิตร | ดีเซล ${fleetConfig.dieselPricePerLiter} บาท/ลิตร
-• เชื้อเพลิงที่ลดได้วันนี้: (${distance.beforeKm} - ${distance.afterKm}) กม. ÷ ${fleetConfig.fuelKmPerLiter} = ${fuel.savedLitersDay} ลิตร
+• สมมติฐานฟลีต: ${fleetConfig.vehicleType} | อัตราสิ้นเปลือง ${safeKmPerL} กม./ลิตร | ดีเซล ${safeDieselPrice} บาท/ลิตร
+• เชื้อเพลิงที่ลดได้วันนี้: (${distance.beforeKm} - ${distance.afterKm}) กม. ÷ ${safeKmPerL} = ${fuel.savedLitersDay} ลิตร
 • คาร์บอนที่ลดได้วันนี้ (Scope 1): ${fuel.savedLitersDay} × ${TGO_CONSTANTS.DIESEL_EF_SCOPE1} = ${carbon.savedScope1Day} kgCO2e`}
             </div>
           </div>
@@ -140,7 +152,7 @@ export default function CarbonReportModal({
               </thead>
               <tbody>
                 {optimization.afterRoutes.map((r) => {
-                  const liters = r.distanceKm / fleetConfig.fuelKmPerLiter;
+                  const liters = r.distanceKm / safeKmPerL;
                   const co2 = liters * TGO_CONSTANTS.DIESEL_EF_SCOPE1;
                   return (
                     <tr key={r.vehicleId}>
@@ -161,6 +173,24 @@ export default function CarbonReportModal({
             </table>
           </div>
 
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: 'var(--pine-800)',
+              background: 'var(--pine-50)',
+              padding: '8px 10px',
+              borderRadius: 8,
+            }}
+          >
+            <ShieldCheck size={14} style={{ flexShrink: 0 }} />
+            <span>
+              PDPA Safe Export: ไฟล์ ESG JSON สำหรับส่งคู่ค้า B2B จะตัดชื่อบุคคลและเบอร์โทรลูกค้าออกทั้งหมดโดยอัตโนมัติ
+            </span>
+          </div>
+
           <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
             หมายเหตุ: การประเมินรายเดือนคำนวณบนฐาน {TGO_CONSTANTS.WORKING_DAYS_PER_MONTH} วันทำงาน/เดือน
             ({TGO_CONSTANTS.WORKING_DAYS_PER_YEAR} วัน/ปี) ลดการใช้รถลง {fleet.trucksEliminated} คัน
@@ -171,7 +201,7 @@ export default function CarbonReportModal({
         <div className="modal-footer no-print">
           <button type="button" className="btn btn-secondary" onClick={handleDownloadJson}>
             <Download size={14} />
-            <span>ดาวน์โหลด ESG JSON</span>
+            <span>ดาวน์โหลด ESG JSON (PDPA-Safe)</span>
           </button>
           <button type="button" className="btn btn-primary" onClick={() => window.print()}>
             <Printer size={14} />

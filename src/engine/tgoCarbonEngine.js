@@ -1,13 +1,15 @@
 /**
- * Deterministic TGO (อบก.) Carbon Footprint & ROI Calculation Engine
+ * Hardened Deterministic TGO (อบก.) Carbon Footprint & ROI Calculation Engine
  *
  * Official Emission Factors — Thailand Greenhouse Gas Management Organization (TGO):
  * - Diesel Scope 1 (Mobile Combustion): 2.7403 kgCO2e / Liter
  * - Diesel Well-to-Wheel (Scope 1 + Scope 3 Fuel Acquisition): 3.0326 kgCO2e / Liter
  * - Mature Tree CO2 Absorption (TGO standard): ~9.0 kgCO2e / tree / year
  *
- * Strictly deterministic code — NO LLM arithmetic to eliminate Hallucination.
+ * Strictly deterministic finite arithmetic — zero LLM arithmetic, zero NaN/Infinity propagation.
  */
+
+import { clampFinite } from './securityUtils.js';
 
 export const TGO_CONSTANTS = {
   DIESEL_EF_SCOPE1: 2.7403, // kgCO2e / Liter (Mobile Combustion)
@@ -28,14 +30,20 @@ export function calculateCarbonAndSavings({
   fuelKmPerLiter = 9.0,
   dieselPricePerLiter = 33.0,
 }) {
-  const safeKmPerL = Math.max(1, Number(fuelKmPerLiter) || 9.0);
-  const safePrice = Math.max(1, Number(dieselPricePerLiter) || 33.0);
+  const safeBeforeKm = clampFinite(beforeDistanceKm, 0, 100000, 0);
+  const safeAfterKm = clampFinite(afterDistanceKm, 0, 100000, 0);
+  const safeBeforeTrucks = Math.round(clampFinite(beforeTrucksUsed, 0, 100, 0));
+  const safeAfterTrucks = Math.round(clampFinite(afterTrucksUsed, 0, 100, 0));
+  const safeBeforeLoad = clampFinite(beforeAvgLoadPct, 0, 100, 0);
+  const safeAfterLoad = clampFinite(afterAvgLoadPct, 0, 100, 0);
+  const safeKmPerL = clampFinite(fuelKmPerLiter, 2, 30, 9.0);
+  const safePrice = clampFinite(dieselPricePerLiter, 10, 100, 33.0);
 
-  const distSavedKm = Math.max(0, beforeDistanceKm - afterDistanceKm);
-  const distSavedPct = beforeDistanceKm > 0 ? (distSavedKm / beforeDistanceKm) * 100 : 0;
+  const distSavedKm = Math.max(0, safeBeforeKm - safeAfterKm);
+  const distSavedPct = safeBeforeKm > 0 ? (distSavedKm / safeBeforeKm) * 100 : 0;
 
-  const beforeLiters = beforeDistanceKm / safeKmPerL;
-  const afterLiters = afterDistanceKm / safeKmPerL;
+  const beforeLiters = safeBeforeKm / safeKmPerL;
+  const afterLiters = safeAfterKm / safeKmPerL;
   const litersSaved = Math.max(0, beforeLiters - afterLiters);
 
   const beforeFuelCost = beforeLiters * safePrice;
@@ -59,12 +67,12 @@ export function calculateCarbonAndSavings({
   const co2SavedWtwYear = co2SavedWtwDay * TGO_CONSTANTS.WORKING_DAYS_PER_YEAR;
 
   const treesEquivalentYear = co2SavedScope1Year / TGO_CONSTANTS.TREE_ABSORPTION_KG_PER_YEAR;
-  const trucksEliminated = Math.max(0, beforeTrucksUsed - afterTrucksUsed);
+  const trucksEliminated = Math.max(0, safeBeforeTrucks - safeAfterTrucks);
 
   return {
     distance: {
-      beforeKm: round2(beforeDistanceKm),
-      afterKm: round2(afterDistanceKm),
+      beforeKm: round2(safeBeforeKm),
+      afterKm: round2(safeAfterKm),
       savedKm: round2(distSavedKm),
       savedPct: round1(distSavedPct),
     },
@@ -93,20 +101,20 @@ export function calculateCarbonAndSavings({
       treesEquivalentYear: Math.round(treesEquivalentYear),
     },
     fleet: {
-      beforeTrucksUsed,
-      afterTrucksUsed,
+      beforeTrucksUsed: safeBeforeTrucks,
+      afterTrucksUsed: safeAfterTrucks,
       trucksEliminated,
-      beforeAvgLoadPct: round1(beforeAvgLoadPct),
-      afterAvgLoadPct: round1(afterAvgLoadPct),
-      loadGainPct: round1(afterAvgLoadPct - beforeAvgLoadPct),
+      beforeAvgLoadPct: round1(safeBeforeLoad),
+      afterAvgLoadPct: round1(safeAfterLoad),
+      loadGainPct: round1(safeAfterLoad - safeBeforeLoad),
     },
   };
 }
 
 function round1(n) {
-  return Math.round(n * 10) / 10;
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;
 }
 
 function round2(n) {
-  return Math.round(n * 100) / 100;
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
 }

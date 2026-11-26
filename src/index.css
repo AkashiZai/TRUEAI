@@ -1336,6 +1336,7 @@ button {
   .topbar,
   .workspace,
   .modal-footer,
+  .toast,
   .no-print {
     display: none !important;
   }

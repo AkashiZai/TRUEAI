@@ -154,10 +154,10 @@ export default function GuardrailModal({
             </div>
           )}
 
-          {/* Full Google Ecosystem PDPA & Architecture Defense Note */}
+          {/* Full Google Ecosystem PDPA & Security Architecture Defense Note */}
           <div className="notice info" style={{ marginTop: 0 }}>
             <div>
-              <strong>สถาปัตยกรรม PDPA &amp; Optimization บน Google Ecosystem เต็มรูปแบบ:</strong>
+              <strong>สถาปัตยกรรม PDPA &amp; Security-by-Design บน Google Ecosystem:</strong>
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                 <li>
                   <strong>1) On-Device Private AI (PDPA 100%):</strong> รัน <em>Google Gemma 3n (Google AI Edge / MediaPipe)</em> + <em>Google ML Kit</em> บนมือถือ/เครื่องลูกค้าโดยตรง ข้อมูลและรูปบิลไม่หลุดออกนอกเครื่องเลย
@@ -166,10 +166,10 @@ export default function GuardrailModal({
                   <strong>2) Serverless GPU Private OCR:</strong> รัน <em>Google Gemma 3 (4B/12B Vision)</em> บน <em>Google Cloud Run GPU</em> (Private VPC · Scale-to-Zero คิดเงินเฉพาะวินาทีที่ใช้งาน) รองรับบิลลายมือหวัดโดยไม่ส่งภาพไปภายนอก
                 </li>
                 <li>
-                  <strong>3) Cloud Multimodal + Client Visual Redaction:</strong> ใช้ <em>Google Gemini 2.5 Flash (Vertex AI)</em> คู่กับ <em>Client-Side Canvas Redaction</em> ลบพิกเซลเบอร์โทรก่อนส่ง (และ Auto-Failover สู่ออฟไลน์เมื่อติด Limit)
+                  <strong>3) Cloud Multimodal + Fail-Closed Redaction:</strong> ใช้ <em>Google Gemini 2.5 Flash</em> (ส่ง Key ผ่าน <code>x-goog-api-key</code> Header + เก็บเฉพาะ <code>sessionStorage</code>) คู่กับ <em>Per-Line Nonce PII Vault</em> และ <em>EXIF-Stripping Canvas Redaction</em> ที่บล็อกส่งภาพทันทีหาก Redaction ไม่สมบูรณ์
                 </li>
                 <li>
-                  <strong>4) Optimization &amp; Maps:</strong> จัดสายด้วยแนวคิด <em>Google OR-Tools (CVRPTW)</em> + ต่อยอด <em>Google Maps Platform (Routes API / Route Optimization API)</em> + <em>Cloud Firestore</em> เก็บพิกัด Cache ลูกค้าประจำ 70–80%
+                  <strong>4) Zero-XSS &amp; Strict CSP Hardening:</strong> สร้างแผนที่ Leaflet ด้วย DOM <code>.textContent</code> ล้วน (Zero <code>innerHTML</code>), บังคับ <em>Content Security Policy (CSP)</em> + <em>Referrer-Policy</em>, และตัด PII ลูกค้าออกจากไฟล์ <em>B2B ESG JSON</em> อัตโนมัติ
                 </li>
               </ul>
             </div>

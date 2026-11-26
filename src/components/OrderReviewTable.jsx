@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, MapPin, Play, Plus, Trash2 } from 'lucide-react';
 import { matchBangkokLocation } from '../data/bangkokLocations';
+import { clampFinite, sanitizePlainText } from '../engine/securityUtils';
 
 export default function OrderReviewTable({
   orders,
@@ -17,7 +18,7 @@ export default function OrderReviewTable({
   const handleQuickAdd = (e) => {
     e.preventDefault();
     if (!quickInput.trim()) return;
-    onAddQuickOrder(quickInput.trim());
+    onAddQuickOrder(quickInput.trim().slice(0, 500));
     setQuickInput('');
   };
 
@@ -54,6 +55,7 @@ export default function OrderReviewTable({
         <input
           id="input-quick-add"
           type="text"
+          maxLength={500}
           className="input-control"
           style={{ fontSize: 12 }}
           value={quickInput}
@@ -99,18 +101,23 @@ export default function OrderReviewTable({
                   value={order.weightKg}
                   onChange={(e) =>
                     onUpdateOrder(order.id, {
-                      weightKg: Math.max(5, Number(e.target.value) || 50),
+                      weightKg: Math.round(clampFinite(e.target.value, 5, 5000, 50)),
                     })
                   }
                   title="น้ำหนัก (กก.)"
                 />
                 <input
                   type="text"
+                  maxLength={140}
                   aria-label={`ที่อยู่ ${order.customerName}`}
                   className="order-mini-input"
                   value={order.addressText}
                   onChange={(e) => {
-                    const nextAddr = e.target.value;
+                    const nextAddr = sanitizePlainText(e.target.value, {
+                      maxLen: 140,
+                      singleLine: true,
+                      trim: false,
+                    });
                     const geo = matchBangkokLocation(nextAddr);
                     onUpdateOrder(order.id, {
                       addressText: nextAddr,
@@ -118,6 +125,16 @@ export default function OrderReviewTable({
                       lat: geo.matched ? geo.lat : order.lat,
                       lng: geo.matched ? geo.lng : order.lng,
                     });
+                  }}
+                  onBlur={(e) => {
+                    const trimmed = sanitizePlainText(e.target.value, {
+                      maxLen: 140,
+                      singleLine: true,
+                      trim: true,
+                    });
+                    if (trimmed !== order.addressText) {
+                      onUpdateOrder(order.id, { addressText: trimmed });
+                    }
                   }}
                   title="ย่าน/ที่อยู่ (พิมพ์ชื่อย่าน กทม. เพื่ออัปเดตพิกัดอัตโนมัติ)"
                 />

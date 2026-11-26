@@ -13,7 +13,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { DEMO_PRESETS, generateSampleThaiReceiptImage } from '../data/demoPresets';
-import { applyVisualRedaction, REDACTION_PRESETS } from '../engine/imageRedactor';
+import {
+  applyVisualRedaction,
+  REDACTION_PRESETS,
+  validateUploadedImageFile,
+} from '../engine/imageRedactor';
+import { clampFinite, MAX_RAW_CHAT_CHARS } from '../engine/securityUtils';
 
 export default function OrderInputPanel({
   activePresetId,
@@ -24,6 +29,8 @@ export default function OrderInputPanel({
   onChangeRawChat,
   rawImageDataUrl,
   redactedImageDataUrl,
+  imageStatus = 'idle',
+  imageError = '',
   onChangeImages,
   fleetConfig,
   onChangeFleetConfig,
@@ -34,45 +41,89 @@ export default function OrderInputPanel({
   const fileInputRef = useRef(null);
   const previewWrapRef = useRef(null);
 
-  const [redactionPresetId, setRedactionPresetId] = useState('phone-column');
+  const [redactionPresetId, setRedactionPresetId] = useState('header-and-phone');
   const [customBoxes, setCustomBoxes] = useState([]);
   const [showRawPreview, setShowRawPreview] = useState(false);
   const [dragBox, setDragBox] = useState(null);
+  const [uploadError, setUploadError] = useState('');
 
   const activePresetBoxes =
     REDACTION_PRESETS.find((p) => p.id === redactionPresetId)?.boxes || [];
   const allBoxes = [...activePresetBoxes, ...customBoxes];
 
-  // Re-burn redacted PNG on client canvas whenever raw image or blackout boxes change
+  // Re-burn redacted EXIF-stripped PNG on client canvas whenever raw image or blackout boxes change
   useEffect(() => {
     let cancelled = false;
     if (!rawImageDataUrl) return;
     const presetBoxes =
       REDACTION_PRESETS.find((p) => p.id === redactionPresetId)?.boxes || [];
     const boxesToBurn = [...presetBoxes, ...customBoxes];
-    applyVisualRedaction(rawImageDataUrl, boxesToBurn).then((redactedUrl) => {
-      if (!cancelled) {
-        onChangeImages({
-          raw: rawImageDataUrl,
-          redacted: redactedUrl,
-          boxCount: boxesToBurn.length,
-        });
-      }
+
+    onChangeImages({
+      raw: rawImageDataUrl,
+      redacted: null,
+      boxCount: boxesToBurn.length,
+      status: 'redacting',
+      error: '',
     });
+
+    applyVisualRedaction(rawImageDataUrl, boxesToBurn)
+      .then((redactedUrl) => {
+        if (!cancelled) {
+          onChangeImages({
+            raw: rawImageDataUrl,
+            redacted: redactedUrl,
+            boxCount: boxesToBurn.length,
+            status: redactedUrl ? 'ready' : 'error',
+            error: redactedUrl ? '' : 'ไม่สามารถสร้างภาพที่ปิดบัง PII ได้',
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          onChangeImages({
+            raw: rawImageDataUrl,
+            redacted: null,
+            boxCount: 0,
+            status: 'error',
+            error: 'ไม่สามารถประมวลผลภาพบน Canvas ได้ — ระบบบล็อกการส่งภาพออก Cloud เพื่อความปลอดภัย (Fail-Closed)',
+          });
+        }
+      });
+
     return () => {
       cancelled = true;
     };
   }, [rawImageDataUrl, redactionPresetId, customBoxes, onChangeImages]);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+
+    setUploadError('');
+    const check = await validateUploadedImageFile(file);
+    if (!check.ok) {
+      setUploadError(check.error);
+      return;
+    }
+
     const reader = new FileReader();
+    reader.onerror = () => {
+      setUploadError('ไม่สามารถอ่านไฟล์ภาพได้ กรุณาลองใหม่');
+    };
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setCustomBoxes([]);
         setShowRawPreview(false);
-        onChangeImages({ raw: reader.result, redacted: reader.result, boxCount: 0 });
+        // Fail-closed: NEVER initialize redacted to raw image before canvas redaction finishes
+        onChangeImages({
+          raw: reader.result,
+          redacted: null,
+          boxCount: 0,
+          status: 'redacting',
+          error: '',
+        });
       }
     };
     reader.readAsDataURL(file);
@@ -80,16 +131,31 @@ export default function OrderInputPanel({
 
   const handleCreateSampleReceipt = () => {
     const dataUrl = generateSampleThaiReceiptImage();
-    setRedactionPresetId('phone-column');
+    setUploadError('');
+    setRedactionPresetId('header-and-phone');
     setCustomBoxes([]);
     setShowRawPreview(false);
-    onChangeImages({ raw: dataUrl, redacted: dataUrl, boxCount: 1 });
+    onChangeImages({
+      raw: dataUrl,
+      redacted: null,
+      boxCount: 2,
+      status: 'redacting',
+      error: '',
+    });
   };
 
-  // Interactive click-and-drag custom PDPA blackout box on preview image
+  // Interactive click-and-drag custom PDPA blackout box with pointer capture (prevents edge-drag spoofing)
   const handlePointerDown = (e) => {
     if (!previewWrapRef.current || showRawPreview) return;
     const rect = previewWrapRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    if (typeof e.currentTarget.setPointerCapture === 'function') {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore synthetic events without active pointerId
+      }
+    }
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     setDragBox({ startX: x, startY: y, currX: x, currY: y });
@@ -98,22 +164,44 @@ export default function OrderInputPanel({
   const handlePointerMove = (e) => {
     if (!dragBox || !previewWrapRef.current) return;
     const rect = previewWrapRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     setDragBox((prev) => (prev ? { ...prev, currX: x, currY: y } : null));
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e) => {
+    if (typeof e.currentTarget.releasePointerCapture === 'function') {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore if not captured
+      }
+    }
     if (!dragBox) return;
     const x = Math.min(dragBox.startX, dragBox.currX);
     const y = Math.min(dragBox.startY, dragBox.currY);
     const w = Math.abs(dragBox.currX - dragBox.startX);
     const h = Math.abs(dragBox.currY - dragBox.startY);
     setDragBox(null);
-    if (w > 0.03 && h > 0.03) {
-      setCustomBoxes((prev) => [...prev, { x, y, w, h, tag: 'PDPA MASK' }]);
+    if (w > 0.015 && h > 0.015) {
+      setCustomBoxes((prev) => {
+        if (prev.length >= 48) {
+          setUploadError('ถึงขีดจำกัดสูงสุด 48 จุดปิดบังแล้ว — กรุณารวมกรอบปิดทับหลายบรรทัดหรือเลือก Preset');
+          return prev;
+        }
+        return [...prev, { x, y, w, h, tag: 'PDPA MASK' }];
+      });
     }
   };
+
+  const handlePointerCancel = () => {
+    setDragBox(null);
+  };
+
+  const imageNotReadyForExtract =
+    inputMode === 'image' &&
+    (!rawImageDataUrl || imageStatus !== 'ready' || !redactedImageDataUrl || allBoxes.length === 0);
 
   return (
     <section className="panel" aria-label="รับออเดอร์จากแชตหรือรูปใบส่งของ">
@@ -183,7 +271,8 @@ export default function OrderInputPanel({
             id="input-line-chat"
             className="chat-textarea"
             value={rawChat}
-            onChange={(e) => onChangeRawChat(e.target.value)}
+            maxLength={MAX_RAW_CHAT_CHARS}
+            onChange={(e) => onChangeRawChat(e.target.value.slice(0, MAX_RAW_CHAT_CHARS))}
             placeholder="วางข้อความออเดอร์จากแชต LINE เช่น: 1. ร้านเจ๊หมวย สุขุมวิท 23 น้ำ 180 กก. ส่งก่อน 11:30 โทร 089-412-8831"
           />
         ) : (
@@ -207,11 +296,15 @@ export default function OrderInputPanel({
                       gap: 5,
                       fontSize: 11.5,
                       fontWeight: 600,
-                      color: 'var(--pine-800)',
+                      color: imageStatus === 'error' ? 'var(--red-ink)' : 'var(--pine-800)',
                     }}
                   >
                     <ShieldCheck size={14} />
-                    Client-Side Visual Redaction ({allBoxes.length} จุดปิดบัง)
+                    {imageStatus === 'redacting'
+                      ? 'กำลังปิดบัง PII + ลบ EXIF บนเบราว์เซอร์...'
+                      : imageStatus === 'error'
+                        ? 'Visual Redaction ล้มเหลว (Fail-Closed)'
+                        : `Client-Side Visual Redaction (${allBoxes.length} จุด · EXIF Stripped)`}
                   </span>
                   <button
                     type="button"
@@ -256,12 +349,15 @@ export default function OrderInputPanel({
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerCancel}
+                  onLostPointerCapture={handlePointerCancel}
                   style={{
                     position: 'relative',
                     display: 'inline-block',
                     maxWidth: '100%',
                     cursor: showRawPreview ? 'default' : 'crosshair',
                     userSelect: 'none',
+                    touchAction: 'none',
                   }}
                   title={
                     showRawPreview
@@ -292,10 +388,12 @@ export default function OrderInputPanel({
                   )}
                 </div>
 
-                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
-                  {showRawPreview
-                    ? 'ภาพต้นฉบับนี้จะไม่ถูกส่งออก Cloud — ระบบส่งเฉพาะภาพที่คาดแถบดำแล้วเท่านั้น'
-                    : 'ลากเมาส์บนภาพเพื่อคาดแถบดำปิดจุดอื่นเพิ่มได้ · เบอร์โทรและชื่อผู้ติดต่อถูกลบพิกเซลบนเครื่องแล้ว'}
+                <div style={{ fontSize: 11, color: allBoxes.length === 0 ? 'var(--red-ink)' : 'var(--ink-muted)' }}>
+                  {allBoxes.length === 0
+                    ? 'กรุณาลากเมาส์ปิดจุด PII บนภาพอย่างน้อย 1 จุด หรือเลือก Preset เพื่อปลดล็อกปุ่มส่งภาพ (PDPA Fail-Closed)'
+                    : showRawPreview
+                      ? 'ภาพต้นฉบับนี้จะไม่ถูกส่งออก Cloud — ระบบส่งเฉพาะภาพที่คาดแถบดำ + ลบ EXIF แล้วเท่านั้น'
+                      : 'ลากเมาส์บนภาพเพื่อคาดแถบดำปิดจุดอื่นเพิ่มได้ · เบอร์โทร ชื่อผู้ติดต่อ และ EXIF ถูกลบบนเครื่องแล้ว'}
                 </div>
 
                 <div className="upload-actions">
@@ -312,7 +410,14 @@ export default function OrderInputPanel({
                     className="btn btn-ghost btn-sm"
                     onClick={() => {
                       setCustomBoxes([]);
-                      onChangeImages({ raw: null, redacted: null, boxCount: 0 });
+                      setUploadError('');
+                      onChangeImages({
+                        raw: null,
+                        redacted: null,
+                        boxCount: 0,
+                        status: 'idle',
+                        error: '',
+                      });
                     }}
                   >
                     <Trash2 size={14} />
@@ -324,10 +429,10 @@ export default function OrderInputPanel({
               <>
                 <Camera size={24} color="var(--pine-700)" />
                 <div style={{ fontSize: 12.5, color: 'var(--ink-secondary)' }}>
-                  อัปโหลดภาพถ่ายใบส่งของ / แคปแชต LINE (PNG, JPG)
+                  อัปโหลดภาพถ่ายใบส่งของ / แคปแชต LINE (PNG, JPG, WebP ไม่เกิน 5 MB)
                   <br />
                   <span style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
-                    ระบบทำ Client-Side Visual PII Redaction บนเบราว์เซอร์ก่อนส่ง Gemini Vision
+                    ระบบตรวจ Magic Bytes + ลบ EXIF + ทำ Visual PII Redaction บนเครื่องก่อนส่ง Gemini Vision
                   </span>
                 </div>
                 <div className="upload-actions">
@@ -352,10 +457,18 @@ export default function OrderInputPanel({
                 </div>
               </>
             )}
+
+            {(uploadError || imageError) && (
+              <div className="notice warn" role="alert" style={{ width: '100%', marginTop: 6 }}>
+                <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                <span>{uploadError || imageError}</span>
+              </div>
+            )}
+
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/png,image/jpeg,image/webp"
               onChange={handleFileChange}
               style={{ display: 'none' }}
             />
@@ -370,14 +483,14 @@ export default function OrderInputPanel({
               id="cfg-weight"
               type="number"
               min="200"
-              max="10000"
+              max="20000"
               step="50"
               className="input-control mono"
               value={fleetConfig.maxWeightKg}
               onChange={(e) =>
                 onChangeFleetConfig({
                   ...fleetConfig,
-                  maxWeightKg: Number(e.target.value) || 1000,
+                  maxWeightKg: Math.round(clampFinite(e.target.value, 200, 20000, 1000)),
                 })
               }
             />
@@ -388,13 +501,13 @@ export default function OrderInputPanel({
               id="cfg-trucks"
               type="number"
               min="1"
-              max="10"
+              max="50"
               className="input-control mono"
               value={fleetConfig.truckCount}
               onChange={(e) =>
                 onChangeFleetConfig({
                   ...fleetConfig,
-                  truckCount: Math.max(1, Number(e.target.value) || 3),
+                  truckCount: Math.round(clampFinite(e.target.value, 1, 50, 3)),
                 })
               }
             />
@@ -404,15 +517,15 @@ export default function OrderInputPanel({
             <input
               id="cfg-kml"
               type="number"
-              min="3"
-              max="20"
+              min="2"
+              max="30"
               step="0.5"
               className="input-control mono"
               value={fleetConfig.fuelKmPerLiter}
               onChange={(e) =>
                 onChangeFleetConfig({
                   ...fleetConfig,
-                  fuelKmPerLiter: Number(e.target.value) || 9,
+                  fuelKmPerLiter: clampFinite(e.target.value, 2, 30, 9),
                 })
               }
             />
@@ -422,15 +535,15 @@ export default function OrderInputPanel({
             <input
               id="cfg-diesel"
               type="number"
-              min="20"
-              max="60"
+              min="10"
+              max="100"
               step="0.5"
               className="input-control mono"
               value={fleetConfig.dieselPricePerLiter}
               onChange={(e) =>
                 onChangeFleetConfig({
                   ...fleetConfig,
-                  dieselPricePerLiter: Number(e.target.value) || 33,
+                  dieselPricePerLiter: clampFinite(e.target.value, 10, 100, 33),
                 })
               }
             />
@@ -443,14 +556,16 @@ export default function OrderInputPanel({
             type="button"
             className="btn btn-primary btn-lg btn-full"
             onClick={onExtract}
-            disabled={isExtracting || (inputMode === 'text' && !rawChat.trim())}
+            disabled={isExtracting || (inputMode === 'text' && !rawChat.trim()) || imageNotReadyForExtract}
           >
             <Sparkles size={16} />
             <span>
               {isExtracting
                 ? 'กำลังแกะข้อมูล + ทำ PDPA Masking...'
                 : inputMode === 'image'
-                  ? 'ส่งภาพที่ปิด PII แล้วเข้า AI (Gemini Vision + Fallback)'
+                  ? imageStatus === 'redacting'
+                    ? 'กำลังเตรียมภาพที่ปิด PII + ลบ EXIF...'
+                    : 'ส่งภาพที่ปิด PII แล้วเข้า AI (Gemini Vision + Fallback)'
                   : 'แกะออเดอร์ด้วย AI (Gemini + Offline Fallback)'}
             </span>
           </button>

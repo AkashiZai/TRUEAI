@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { KeyRound, ShieldAlert, X } from 'lucide-react';
+import { KeyRound, ShieldAlert, Trash2, X } from 'lucide-react';
+import { ALLOWED_GEMINI_MODELS } from '../engine/securityUtils';
 
 export default function ApiSettingsModal({
   isOpen,
@@ -10,19 +11,31 @@ export default function ApiSettingsModal({
   onSave,
 }) {
   const [draftKey, setDraftKey] = useState(apiKey);
-  const [draftModel, setDraftModel] = useState(model);
+  const [draftModel, setDraftModel] = useState(
+    ALLOWED_GEMINI_MODELS.has(model) ? model : 'gemini-2.5-flash'
+  );
   const [draftForceOffline, setDraftForceOffline] = useState(forceOffline);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const safeModel = ALLOWED_GEMINI_MODELS.has(draftModel) ? draftModel : 'gemini-2.5-flash';
     onSave({
       apiKey: draftKey.trim(),
-      model: draftModel,
+      model: safeModel,
       forceOffline: draftForceOffline,
     });
     onClose();
+  };
+
+  const handleClearKeyNow = () => {
+    setDraftKey('');
+    onSave({
+      apiKey: '',
+      model: ALLOWED_GEMINI_MODELS.has(draftModel) ? draftModel : 'gemini-2.5-flash',
+      forceOffline: draftForceOffline,
+    });
   };
 
   return (
@@ -34,7 +47,7 @@ export default function ApiSettingsModal({
             <div>
               <h2>ตั้งค่า Google Gemini API &amp; Offline Fallback</h2>
               <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
-                เก็บ Key ไว้เฉพาะในเบราว์เซอร์เครื่องคุณ (localStorage) ไม่ส่งไปเซิร์ฟเวอร์อื่น
+                เก็บ Key แบบชั่วคราวใน sessionStorage เท่านั้น (ล้างอัตโนมัติเมื่อปิดแท็บ · ส่งผ่าน Header x-goog-api-key)
               </div>
             </div>
           </div>
@@ -46,16 +59,33 @@ export default function ApiSettingsModal({
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             <div className="input-field">
-              <label htmlFor="gemini-api-key">Google AI Studio API Key (ไม่บังคับ)</label>
-              <input
-                id="gemini-api-key"
-                type="password"
-                className="input-control mono"
-                value={draftKey}
-                onChange={(e) => setDraftKey(e.target.value)}
-                placeholder="AIzaSy... (ปล่อยว่างเพื่อใช้ Offline Smart Fallback)"
-                autoComplete="off"
-              />
+              <label htmlFor="gemini-api-key">Google AI Studio API Key (ไม่บังคับ · Session Only)</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  id="gemini-api-key"
+                  type="password"
+                  className="input-control mono"
+                  style={{ flex: 1 }}
+                  value={draftKey}
+                  onChange={(e) => setDraftKey(e.target.value)}
+                  placeholder="AIzaSy... (ปล่อยว่างเพื่อใช้ Offline Smart Fallback)"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                {draftKey && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleClearKeyNow}
+                    title="ล้าง API Key ออกจากเซสชันทันที"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
+                ปลอดภัยกว่า localStorage: ไม่ค้างบนดิสก์ข้ามเซสชัน และไม่แชร์ข้ามแท็บ (Production ใช้ Backend Proxy บน Cloud Run)
+              </span>
             </div>
 
             <div className="input-field">
@@ -97,7 +127,7 @@ export default function ApiSettingsModal({
                   เปิดโหมด On-Device / Offline Smart Fallback ตลอดเวลา (Safe Demo Mode)
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
-                  จำลองการทำงานฝั่งเครื่อง 100% (ความเร็ว &lt;50ms, PDPA ปลอดภัยสูงสุด และไม่ติด Rate Limit ของ API)
+                  ปิดการส่งข้อมูลออกทั้ง Gemini API และ OSRM Routing ภายนอก 100% (ความเร็ว &lt;50ms, PDPA ปลอดภัยสูงสุด และไม่ติด Rate Limit)
                 </div>
               </div>
             </label>

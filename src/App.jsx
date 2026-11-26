@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { DEMO_PRESETS } from './data/demoPresets';
 import { maskPII } from './engine/piiMasker';
 import { extractOrdersHybrid, parseOrdersOffline } from './engine/orderExtractor';
 import { enrichWithOSRMRoads, runFleetOptimization } from './engine/cvrptwSolver';
 import { calculateCarbonAndSavings } from './engine/tgoCarbonEngine';
+import {
+  ALLOWED_GEMINI_MODELS,
+  generateOrderId,
+  sanitizeDriverField,
+} from './engine/securityUtils';
 
 import Header from './components/Header';
 import ImpactMetrics from './components/ImpactMetrics';
@@ -20,9 +25,51 @@ const STORAGE_KEY_API = 'greenroute_gemini_api_key';
 const STORAGE_KEY_MODEL = 'greenroute_gemini_model';
 const STORAGE_KEY_OFFLINE = 'greenroute_force_offline';
 
+const EMPTY_IMAGE_PRIVACY = {
+  raw: null,
+  redacted: null,
+  boxCount: 0,
+  status: 'idle',
+  error: '',
+};
+
+function readSessionKey() {
+  try {
+    // Purge any legacy disk-persisted API key from origin-shared localStorage immediately
+    localStorage.removeItem(STORAGE_KEY_API);
+  } catch {
+    // Ignore restricted storage environments
+  }
+  try {
+    return sessionStorage.getItem(STORAGE_KEY_API) || '';
+  } catch {
+    return '';
+  }
+}
+
+function readStoredModel() {
+  try {
+    const val = sessionStorage.getItem(STORAGE_KEY_MODEL) || localStorage.getItem(STORAGE_KEY_MODEL);
+    return ALLOWED_GEMINI_MODELS.has(val) ? val : 'gemini-2.5-flash';
+  } catch {
+    return 'gemini-2.5-flash';
+  }
+}
+
+function readStoredOffline() {
+  try {
+    return (
+      sessionStorage.getItem(STORAGE_KEY_OFFLINE) === 'true' ||
+      localStorage.getItem(STORAGE_KEY_OFFLINE) === 'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function buildInitialState(preset) {
   const piiReport = maskPII(preset.rawChat);
-  const orders = parseOrdersOffline(preset.rawChat, piiReport.vault, false);
+  const orders = parseOrdersOffline(preset.rawChat, piiReport, false);
   const optimization = runFleetOptimization(orders, preset.depot, preset.fleet);
   return {
     piiReport,
@@ -42,11 +89,13 @@ function buildInitialState(preset) {
 export default function App() {
   const defaultPreset = DEMO_PRESETS[0];
   const initial = useMemo(() => buildInitialState(defaultPreset), [defaultPreset]);
+  const optimizeSeqRef = useRef(0);
+  const didInitialOsrmRef = useRef(false);
 
   const [activePresetId, setActivePresetId] = useState(defaultPreset.id);
   const [inputMode, setInputMode] = useState('text');
   const [rawChat, setRawChat] = useState(defaultPreset.rawChat);
-  const [imagePrivacy, setImagePrivacy] = useState({ raw: null, redacted: null, boxCount: 0 });
+  const [imagePrivacy, setImagePrivacy] = useState(EMPTY_IMAGE_PRIVACY);
   const [fleetConfig, setFleetConfig] = useState(defaultPreset.fleet);
 
   const [orders, setOrders] = useState(initial.orders);
@@ -65,14 +114,10 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
-  // Gemini API Settings (persisted locally in browser)
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_API) || '');
-  const [model, setModel] = useState(
-    () => localStorage.getItem(STORAGE_KEY_MODEL) || 'gemini-2.5-flash'
-  );
-  const [forceOffline, setForceOffline] = useState(
-    () => localStorage.getItem(STORAGE_KEY_OFFLINE) === 'true'
-  );
+  // Gemini API Key kept strictly in tab-scoped sessionStorage (auto-wiped on tab close)
+  const [apiKey, setApiKey] = useState(readSessionKey);
+  const [model, setModel] = useState(readStoredModel);
+  const [forceOffline, setForceOffline] = useState(readStoredOffline);
 
   const activePreset = useMemo(
     () => DEMO_PRESETS.find((p) => p.id === activePresetId) || DEMO_PRESETS[0],
@@ -97,28 +142,49 @@ export default function App() {
     setToastMsg(msg);
     setTimeout(() => {
       setToastMsg((prev) => (prev === msg ? '' : prev));
-    }, 3200);
+    }, 3400);
   }, []);
 
-  const optimizeAndEnrich = useCallback(async (orderList, depot, cfg) => {
-    setIsOptimizing(true);
-    setSelectedVehicleId(null);
+  const optimizeAndEnrich = useCallback(
+    async (orderList, depot, cfg, offlineOverride = forceOffline) => {
+      const seqId = ++optimizeSeqRef.current;
+      setIsOptimizing(true);
+      setSelectedVehicleId(null);
 
-    const baseResult = runFleetOptimization(orderList, depot, cfg);
-    setOptimization(baseResult);
+      const baseResult = runFleetOptimization(orderList, depot, cfg);
+      setOptimization(baseResult);
 
-    // Upgrade street polylines via OSRM in background (fails silently offline)
-    const enriched = await enrichWithOSRMRoads(baseResult, depot);
-    setOptimization(enriched);
-    setIsOptimizing(false);
-    return enriched;
-  }, []);
+      // Strictly respect Offline Safe Mode: zero external OSRM requests when offlineOverride is true
+      if (offlineOverride) {
+        setIsOptimizing(false);
+        return { ...baseResult, osrmActive: false };
+      }
 
-  // Enrich initial preset routes with real Bangkok OSRM road polylines on mount
+      const enriched = await enrichWithOSRMRoads(baseResult, depot, {
+        forceOffline: offlineOverride,
+      });
+      if (seqId === optimizeSeqRef.current) {
+        setOptimization(enriched);
+        setIsOptimizing(false);
+      }
+      return enriched;
+    },
+    [forceOffline]
+  );
+
+  // One-shot initial OSRM enrichment on mount only (never overwrites active preset/orders on toggle)
   useEffect(() => {
+    if (didInitialOsrmRef.current) return;
+    didInitialOsrmRef.current = true;
+    if (readStoredOffline()) return;
     let cancelled = false;
-    enrichWithOSRMRoads(initial.optimization, defaultPreset.depot).then((enriched) => {
-      if (!cancelled) setOptimization(enriched);
+    const seqId = ++optimizeSeqRef.current;
+    enrichWithOSRMRoads(initial.optimization, defaultPreset.depot, {
+      forceOffline: false,
+    }).then((enriched) => {
+      if (!cancelled && seqId === optimizeSeqRef.current) {
+        setOptimization(enriched);
+      }
     });
     return () => {
       cancelled = true;
@@ -131,12 +197,12 @@ export default function App() {
 
     setActivePresetId(preset.id);
     setRawChat(preset.rawChat);
-    setImagePrivacy({ raw: null, redacted: null, boxCount: 0 });
+    setImagePrivacy(EMPTY_IMAGE_PRIVACY);
     setInputMode('text');
     setFleetConfig(preset.fleet);
 
     const nextPii = maskPII(preset.rawChat);
-    const nextOrders = parseOrdersOffline(preset.rawChat, nextPii.vault, false);
+    const nextOrders = parseOrdersOffline(preset.rawChat, nextPii, false);
     setPiiReport(nextPii);
     setOrders(nextOrders);
     setTelemetry({
@@ -148,20 +214,30 @@ export default function App() {
       modelUsed: 'Thai-NLP-Heuristic-v2',
     });
 
-    await optimizeAndEnrich(nextOrders, preset.depot, preset.fleet);
+    await optimizeAndEnrich(nextOrders, preset.depot, preset.fleet, forceOffline);
     showToast(`โหลดเคส "${preset.title}" และจัดเส้นทางใหม่แล้ว`);
   };
 
   const handleExtract = async () => {
+    // PDPA Fail-Closed Guarantee: NEVER send rawImageDataUrl or unredacted images to external API
+    if (inputMode === 'image') {
+      if (
+        imagePrivacy.status !== 'ready' ||
+        !imagePrivacy.redacted ||
+        imagePrivacy.boxCount < 1
+      ) {
+        showToast('บล็อกการส่งภาพ (PDPA Fail-Closed): ต้องคาดแถบดำปิด PII อย่างน้อย 1 จุดและรอประมวลผลเสร็จก่อน');
+        return;
+      }
+    }
+
     setIsExtracting(true);
     try {
-      // Privacy Guarantee: ONLY send the client-side redacted image to Gemini Vision (never rawImage)
-      const safeRedactedImage =
-        inputMode === 'image' ? imagePrivacy.redacted || imagePrivacy.raw : null;
+      const safeRedactedImage = inputMode === 'image' ? imagePrivacy.redacted : null;
       const result = await extractOrdersHybrid({
         rawText: inputMode === 'text' ? rawChat : '',
         imageDataUrl: safeRedactedImage,
-        fallbackPresetText: rawChat || activePreset.rawChat,
+        fallbackPresetText: inputMode === 'image' ? activePreset.rawChat : rawChat || activePreset.rawChat,
         apiKey,
         model,
         forceOffline,
@@ -172,7 +248,7 @@ export default function App() {
       setTelemetry(result.telemetry);
 
       if (result.orders.length > 0) {
-        await optimizeAndEnrich(result.orders, activePreset.depot, fleetConfig);
+        await optimizeAndEnrich(result.orders, activePreset.depot, fleetConfig, forceOffline);
         showToast(
           result.telemetry.mode === 'gemini-live'
             ? `Gemini แกะ ${result.orders.length} จุดส่ง + จัดเส้นทางสำเร็จ`
@@ -189,41 +265,90 @@ export default function App() {
   };
 
   const handleDeleteOrder = (id) => {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
+    const target = orders.find((o) => o.id === id);
+    const remaining = orders.filter((o) => o.id !== id);
+    setOrders(remaining);
+
+    // Immediately recompute local routes so deleted customer PII vanishes from Map, Cards & Clipboard
+    optimizeSeqRef.current++;
+    setSelectedVehicleId(null);
+    setOptimization(runFleetOptimization(remaining, activePreset.depot, fleetConfig));
+
+    // Purge deleted customer's PII line from rawChat & piiReport
+    if (target && rawChat) {
+      const lines = rawChat.split(/\r?\n/);
+      let removedOne = false;
+      const filteredLines = lines.filter((line) => {
+        if (removedOne) return true;
+        if (target.phone && target.phone !== '-' && line.includes(target.phone)) {
+          removedOne = true;
+          return false;
+        }
+        if (target.customerName && target.customerName.length >= 3 && line.includes(target.customerName)) {
+          removedOne = true;
+          return false;
+        }
+        return true;
+      });
+      if (filteredLines.length !== lines.length) {
+        const nextRaw = filteredLines.join('\n');
+        setRawChat(nextRaw);
+        setPiiReport(maskPII(nextRaw));
+      }
+    }
   };
 
   const handleAddQuickOrder = async (line) => {
     const pii = maskPII(line);
-    const parsed = parseOrdersOffline(line, pii.vault, false);
+    const parsed = parseOrdersOffline(line, pii, false);
     if (!parsed.length) return;
     const newOrder = {
       ...parsed[0],
-      id: `ord-${Date.now()}`,
+      id: generateOrderId(),
     };
     const nextOrders = [...orders, newOrder];
     setOrders(nextOrders);
-    await optimizeAndEnrich(nextOrders, activePreset.depot, fleetConfig);
+    await optimizeAndEnrich(nextOrders, activePreset.depot, fleetConfig, forceOffline);
     showToast(`เพิ่ม "${newOrder.customerName}" (${newOrder.matchedArea}) และจัดสายใหม่แล้ว`);
   };
 
   const handleRunOptimize = async () => {
-    await optimizeAndEnrich(orders, activePreset.depot, fleetConfig);
+    await optimizeAndEnrich(orders, activePreset.depot, fleetConfig, forceOffline);
     showToast('อัปเดตเส้นทาง CVRPTW และคาร์บอน TGO เรียบร้อยแล้ว');
   };
 
   const handleSaveApiSettings = ({ apiKey: nextKey, model: nextModel, forceOffline: nextOff }) => {
+    const safeModel = ALLOWED_GEMINI_MODELS.has(nextModel) ? nextModel : 'gemini-2.5-flash';
     setApiKey(nextKey);
-    setModel(nextModel);
+    setModel(safeModel);
     setForceOffline(nextOff);
-    localStorage.setItem(STORAGE_KEY_API, nextKey);
-    localStorage.setItem(STORAGE_KEY_MODEL, nextModel);
-    localStorage.setItem(STORAGE_KEY_OFFLINE, String(nextOff));
+
+    try {
+      // Always keep localStorage free of API keys; persist only in tab-scoped sessionStorage
+      localStorage.removeItem(STORAGE_KEY_API);
+      if (nextKey) {
+        sessionStorage.setItem(STORAGE_KEY_API, nextKey);
+      } else {
+        sessionStorage.removeItem(STORAGE_KEY_API);
+      }
+      sessionStorage.setItem(STORAGE_KEY_MODEL, safeModel);
+      sessionStorage.setItem(STORAGE_KEY_OFFLINE, String(nextOff));
+      localStorage.setItem(STORAGE_KEY_OFFLINE, String(nextOff));
+    } catch {
+      // Ignore storage quota / privacy mode errors
+    }
+
+    if (nextOff) {
+      // Unconditionally invalidate any in-flight OSRM fetch and recompute purely locally
+      optimizeAndEnrich(orders, activePreset.depot, fleetConfig, true);
+    }
+
     showToast(
       nextOff
-        ? 'เปิดโหมด Offline Smart Fallback (Safe Demo Mode) แล้ว'
+        ? 'เปิดโหมด Offline Smart Fallback 100% (ปิดทั้ง Gemini & OSRM ภายนอกแล้ว)'
         : nextKey
-          ? `บันทึก Gemini API Key (${nextModel}) แล้ว`
-          : 'ล้าง API Key แล้ว — ใช้ Offline Smart Fallback'
+          ? `บันทึก Gemini API Key (${safeModel}) ใน sessionStorage แล้ว`
+          : 'ล้าง API Key ออกจากเซสชันแล้ว — ใช้ Offline Smart Fallback'
     );
   };
 
@@ -231,17 +356,35 @@ export default function App() {
     const stopsText = route.stops
       .map(
         (s) =>
-          `${s.stopNumber}. ${s.customerName} (${s.matchedArea}) — ${s.weightKg} กก. | ETA ${s.eta} | โทร ${s.phone}`
+          `${s.stopNumber}. ${sanitizeDriverField(s.customerName, 80)} (${sanitizeDriverField(
+            s.matchedArea,
+            80
+          )}) — ${s.weightKg} กก. | ETA ${sanitizeDriverField(s.eta, 16)} | โทร ${sanitizeDriverField(
+            s.phone,
+            24
+          )}`
       )
       .join('\n');
 
     const lifoText = route.lifoOrder
-      .map((slot) => `• ${slot.positionLabel}: จุด #${slot.stopNumber} (${slot.customerName})`)
+      .map(
+        (slot) =>
+          `• ${sanitizeDriverField(slot.positionLabel, 40)}: จุด #${slot.stopNumber} (${sanitizeDriverField(
+            slot.customerName,
+            80
+          )})`
+      )
       .join('\n');
 
+    const safeMapsUrl =
+      typeof route.googleMapsUrl === 'string' &&
+      route.googleMapsUrl.startsWith('https://www.google.com/maps/')
+        ? route.googleMapsUrl
+        : '-';
+
     const message = [
-      `🚚 แผนส่งของ GreenRoute AI — ${route.vehicleName}`,
-      `คลังต้นทาง: ${activePreset.depot.name}`,
+      `🚚 แผนส่งของ GreenRoute AI — ${sanitizeDriverField(route.vehicleName, 40)}`,
+      `คลังต้นทาง: ${sanitizeDriverField(activePreset.depot.name, 80)}`,
       `ระยะทางรวม: ${route.distanceKm} กม. | น้ำหนัก: ${route.totalWeightKg}/${route.maxWeightKg} กก. (${route.loadPct}%)`,
       '',
       '📍 ลำดับจุดส่ง:',
@@ -250,7 +393,7 @@ export default function App() {
       '📦 ลำดับยกของขึ้นรถ (LIFO):',
       lifoText,
       '',
-      `🗺️ เปิดนำทาง Google Maps:\n${route.googleMapsUrl}`,
+      `🗺️ เปิดนำทาง Google Maps:\n${safeMapsUrl}`,
     ].join('\n');
 
     try {
@@ -265,7 +408,7 @@ export default function App() {
     <div className="app-shell">
       <Header
         telemetry={telemetry}
-        hasApiKey={Boolean(apiKey || import.meta.env.VITE_GEMINI_API_KEY)}
+        hasApiKey={Boolean(apiKey)}
         forceOffline={forceOffline}
         onOpenReport={() => setShowReportModal(true)}
         onOpenGuardrail={() => setShowGuardrailModal(true)}
@@ -287,6 +430,8 @@ export default function App() {
               onChangeRawChat={setRawChat}
               rawImageDataUrl={imagePrivacy.raw}
               redactedImageDataUrl={imagePrivacy.redacted}
+              imageStatus={imagePrivacy.status}
+              imageError={imagePrivacy.error}
               onChangeImages={setImagePrivacy}
               fleetConfig={fleetConfig}
               onChangeFleetConfig={setFleetConfig}
@@ -313,6 +458,7 @@ export default function App() {
               onChangeMapViewMode={setMapViewMode}
               selectedVehicleId={selectedVehicleId}
               onSelectVehicle={setSelectedVehicleId}
+              forceOffline={forceOffline}
             />
 
             <VehicleRoutesPanel
@@ -344,14 +490,16 @@ export default function App() {
         optimization={optimization}
       />
 
-      <ApiSettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        apiKey={apiKey}
-        model={model}
-        forceOffline={forceOffline}
-        onSave={handleSaveApiSettings}
-      />
+      {showSettingsModal && (
+        <ApiSettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          apiKey={apiKey}
+          model={model}
+          forceOffline={forceOffline}
+          onSave={handleSaveApiSettings}
+        />
+      )}
 
       {toastMsg && (
         <div className="toast" role="status" aria-live="polite">
