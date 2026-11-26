@@ -459,3 +459,14 @@ test('ADV-F06: clampFinite rejects null/empty/boolean and sanitizePlainText supp
   assert.equal(sanitizePlainText('สุขุมวิท ', { maxLen: 140, singleLine: true, trim: false }), 'สุขุมวิท ');
 });
 
+test('SEC-09: Cloudflare public/_headers enforces frame-ancestors, X-Frame-Options, HSTS, COOP, and CORP', () => {
+  const headersContent = fs.readFileSync(path.join(ROOT_DIR, 'public/_headers'), 'utf8');
+  assert.ok(headersContent.includes("frame-ancestors 'none'"));
+  assert.ok(headersContent.includes('X-Frame-Options: DENY'));
+  assert.ok(headersContent.includes('X-Content-Type-Options: nosniff'));
+  assert.ok(headersContent.includes('Referrer-Policy: no-referrer'));
+  assert.ok(headersContent.includes('Strict-Transport-Security:'));
+  assert.ok(headersContent.includes('Cross-Origin-Opener-Policy: same-origin'));
+});
+
+
