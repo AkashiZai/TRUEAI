@@ -1,7 +1,8 @@
 # GreenRoute AI — Chat-to-Green-Route & Carbon Optimizer for Thai SMEs
 
 **AI for Future Workforce Competition (True x Google) — Track 4: Sustainability & Environment (SWU)**  
-**Live Prototype:** https://akashizai.github.io/TRUEAI/
+**Live Prototype (Cloudflare Workers · A+ Security Headers):** https://greenroute-ai.trueai.workers.dev/  
+**Backup Mirror (GitHub Pages):** https://akashizai.github.io/TRUEAI/
 
 GreenRoute AI เปลี่ยนแชตสั่งของ LINE และรูปถ่ายใบส่งของของธุรกิจ SMEs ไทยให้กลายเป็นแผนจัดเส้นทางขนส่งที่วิ่งระยะทางสั้นที่สุด บรรทุกเต็มคันที่สุด และปล่อยก๊าซเรือนกระจกน้อยที่สุดภายในไม่กี่วินาที พร้อมออกรายงาน **Carbon Footprint ตามมาตรฐาน อบก. (TGO)** อัตโนมัติ
 

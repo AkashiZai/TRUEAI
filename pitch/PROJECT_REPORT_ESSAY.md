@@ -8,7 +8,7 @@
   2. นายไทยเดิม ธีระโรจนพงษ์ (เลขนิสิต 68102010203)
   3. นายธราเทพ ศรีมานนท์ (เลขนิสิต 68102010202)
 * **อาจารย์ที่ปรึกษา:** อาจารย์ วีรยุทธ เจริญเรืองกิจ
-* **Live Prototype:** https://akashizai.github.io/TRUEAI/
+* **Live Prototype:** https://greenroute-ai.trueai.workers.dev/
 * **Source Code:** https://github.com/AkashiZai/TRUEAI
 
 ---
