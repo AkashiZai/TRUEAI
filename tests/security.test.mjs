@@ -464,7 +464,7 @@ test('SEC-09: Cloudflare public/_headers enforces frame-ancestors, X-Frame-Optio
   assert.ok(headersContent.includes("frame-ancestors 'none'"));
   assert.ok(headersContent.includes('X-Frame-Options: DENY'));
   assert.ok(headersContent.includes('X-Content-Type-Options: nosniff'));
-  assert.ok(headersContent.includes('Referrer-Policy: no-referrer'));
+  assert.ok(headersContent.includes('Referrer-Policy: strict-origin-when-cross-origin'));
   assert.ok(headersContent.includes('Strict-Transport-Security:'));
   assert.ok(headersContent.includes('Cross-Origin-Opener-Policy: same-origin'));
 });

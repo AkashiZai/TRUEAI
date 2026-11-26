@@ -132,11 +132,11 @@ export default function RouteMap({
       scrollWheelZoom: true,
     });
 
-    // Clean OpenStreetMap Bangkok street tiles (zero API key required)
+    // Clean OpenStreetMap Bangkok street tiles (OSM Tile Usage Policy requires origin Referer)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
-      referrerPolicy: 'no-referrer',
+      referrerPolicy: 'strict-origin-when-cross-origin',
     }).addTo(map);
 
     layerGroupRef.current = L.layerGroup().addTo(map);
