@@ -3,6 +3,11 @@
 
 * **การแข่งขัน:** AI for Future Workforce Competition (True x Google) — รอบคัดเลือกมหาวิทยาลัยศรีนครินทรวิโรฒ (มศว)
 * **หัวข้อ:** Track 4: Sustainability & Environment
+* **คณะผู้จัดทำ (ภาควิชาวิทยาการคอมพิวเตอร์ มศว):**
+  1. นายพิสิษฐ์ เสนีวงศ์ ณ อยุธยา (เลขนิสิต 68102010210)
+  2. นายไทยเดิม ธีระโรจนพงษ์ (เลขนิสิต 68102010203)
+  3. นายธราเทพ ศรีมานนท์ (เลขนิสิต 68102010202)
+* **อาจารย์ที่ปรึกษา:** อาจารย์ วีรยุทธ เจริญเรืองกิจ
 * **Live Prototype:** https://akashizai.github.io/TRUEAI/
 * **Source Code:** https://github.com/AkashiZai/TRUEAI
 
