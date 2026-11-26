@@ -154,19 +154,22 @@ export default function GuardrailModal({
             </div>
           )}
 
-          {/* Engineering & PDPA Defense Note */}
+          {/* Full Google Ecosystem PDPA & Architecture Defense Note */}
           <div className="notice info" style={{ marginTop: 0 }}>
             <div>
-              <strong>สถาปัตยกรรมป้องกัน PII รั่วไหลในระดับ Production (Dual-Path Privacy):</strong>
+              <strong>สถาปัตยกรรม PDPA &amp; Optimization บน Google Ecosystem เต็มรูปแบบ:</strong>
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                 <li>
-                  <strong>บิลพิมพ์มาตรฐาน:</strong> รัน <em>On-Device Pre-OCR</em> (ML Kit / Tesseract.js) บนเครื่องลูกค้า → ทำ Local PII Masking → ส่งเฉพาะข้อความที่ล้าง PII แล้วให้ Gemini (ไม่มีรูปหลุดออกนอกเครื่อง)
+                  <strong>1) On-Device Private AI (PDPA 100%):</strong> รัน <em>Google Gemma 3n (Google AI Edge / MediaPipe)</em> + <em>Google ML Kit</em> บนมือถือ/เครื่องลูกค้าโดยตรง ข้อมูลและรูปบิลไม่หลุดออกนอกเครื่องเลย
                 </li>
                 <li>
-                  <strong>บิลลายมือหวัดที่ต้องใช้ Vision:</strong> ทำ <em>Client-Side Canvas Redaction</em> คาดแถบดำปิดคอลัมน์เบอร์โทร/ชื่อผู้ติดต่อบนเครื่องก่อนส่ง (เหลือเฉพาะชื่อนิติบุคคล/สินค้าซึ่งไม่เป็น PII ตาม พ.ร.บ. PDPA) ควบคู่สัญญา <em>Zero Data Retention</em> บน Enterprise API
+                  <strong>2) Serverless GPU Private OCR:</strong> รัน <em>Google Gemma 3 (4B/12B Vision)</em> บน <em>Google Cloud Run GPU</em> (Private VPC · Scale-to-Zero คิดเงินเฉพาะวินาทีที่ใช้งาน) รองรับบิลลายมือหวัดโดยไม่ส่งภาพไปภายนอก
                 </li>
                 <li>
-                  <strong>Dynamic Daily Dispatching:</strong> แม้องค์กรมีลูกค้าประจำ 50–150 ราย (Cache พิกัดได้ 70–80%) แต่ Subset ที่สั่งจริง น้ำหนัก และ Time Window เปลี่ยนทุกเช้า จึงต้องคำนวณ CVRPTW ใหม่ทุกวัน
+                  <strong>3) Cloud Multimodal + Client Visual Redaction:</strong> ใช้ <em>Google Gemini 2.5 Flash (Vertex AI)</em> คู่กับ <em>Client-Side Canvas Redaction</em> ลบพิกเซลเบอร์โทรก่อนส่ง (และ Auto-Failover สู่ออฟไลน์เมื่อติด Limit)
+                </li>
+                <li>
+                  <strong>4) Optimization &amp; Maps:</strong> จัดสายด้วยแนวคิด <em>Google OR-Tools (CVRPTW)</em> + ต่อยอด <em>Google Maps Platform (Routes API / Route Optimization API)</em> + <em>Cloud Firestore</em> เก็บพิกัด Cache ลูกค้าประจำ 70–80%
                 </li>
               </ul>
             </div>

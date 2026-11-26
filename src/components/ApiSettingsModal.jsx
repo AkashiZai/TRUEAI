@@ -59,16 +59,19 @@ export default function ApiSettingsModal({
             </div>
 
             <div className="input-field">
-              <label htmlFor="gemini-model-select">Gemini Model</label>
+              <label htmlFor="gemini-model-select">Google AI Model (Cloud API / Private Architecture)</label>
               <select
                 id="gemini-model-select"
                 className="input-control"
                 value={draftModel}
                 onChange={(e) => setDraftModel(e.target.value)}
               >
-                <option value="gemini-2.5-flash">gemini-2.5-flash (แนะนำ — เร็วและรองรับภาพ OCR)</option>
-                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                <option value="gemini-2.5-flash">Google Gemini 2.5 Flash (แนะนำ — Multimodal OCR + JSON)</option>
+                <option value="gemini-2.0-flash">Google Gemini 2.0 Flash</option>
               </select>
+              <span style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
+                Production PDPA รองรับการรัน <strong>Google Gemma 3 Vision</strong> บน <strong>Cloud Run Serverless GPU</strong> (Scale-to-Zero) และ <strong>Gemma 3n On-Device</strong>
+              </span>
             </div>
 
             <label
@@ -91,10 +94,10 @@ export default function ApiSettingsModal({
               />
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>
-                  เปิดโหมด Offline Smart Fallback ตลอดเวลา (Safe Demo Mode)
+                  เปิดโหมด On-Device / Offline Smart Fallback ตลอดเวลา (Safe Demo Mode)
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
-                  เหมาะสำหรับซ้อมหรือช่วง Q&amp;A ที่ต้องการความเร็ว &lt;50ms โดยไม่ต้องกังวล Rate Limit ของ Gemini
+                  จำลองการทำงานฝั่งเครื่อง 100% (ความเร็ว &lt;50ms, PDPA ปลอดภัยสูงสุด และไม่ติด Rate Limit ของ API)
                 </div>
               </div>
             </label>

@@ -51,10 +51,11 @@
 ### ชั้นที่ 1: การสกัดข้อมูล การปกป้องข้อมูลส่วนบุคคล และความเสถียรของระบบ
 *(โค้ด: `src/engine/piiMasker.js`, `src/engine/imageRedactor.js`, `src/engine/orderExtractor.js`, `src/data/bangkokLocations.js`)*
 
-1. **PDPA Privacy Guardrails แบบ 2 ชั้น (Text Masking + Visual Image Redaction):**
-   * **โหมดข้อความ:** แทนที่เบอร์โทร (`[PHONE_01]`), อีเมล/LINE ID (`[CONTACT_01]`) และชื่อบุคคล (`[PERSON_01]`) บนเครื่องผู้ใช้ก่อนส่ง Cloud
-   * **โหมดรูปภาพใบส่งของ:** รองรับทั้ง **On-Device Pre-OCR** (แปลงภาพเป็นข้อความบนเครื่องแล้ว Mask PII ก่อนส่ง) และ **Client-Side Canvas Visual Redaction** คาดแถบดำลบพิกเซลคอลัมน์เบอร์โทร/ชื่อบนเบราว์เซอร์เครื่องลูกค้าก่อนส่ง Gemini Vision (พร้อมลากปิดจุดอื่นเพิ่มได้เอง)
-   * **Dynamic Daily Subset:** แม้ร้านมีลูกค้าประจำ 50–150 ราย (ช่วยให้ Cache พิกัดลดค่า Maps API ได้ 70–80%) แต่ชุดลูกค้าที่สั่งจริงในแต่ละเช้า น้ำหนักสั่งซื้อ และ Time Window เปลี่ยนทุกวัน จึงยังต้องรัน CVRPTW ใหม่ทุกเช้า
+1. **PDPA Privacy Guardrails บน Google Ecosystem (On-Device / Serverless GPU + Visual Redaction):**
+   * **On-Device Private LLM:** รัน **Google Gemma 3n** (Google AI Edge / MediaPipe) + **Google ML Kit** บนอุปกรณ์โดยตรง ข้อมูลและรูปบิลไม่หลุดออกนอกเครื่อง 100%
+   * **Serverless GPU Private OCR:** รัน **Google Gemma 3 (4B/12B Vision)** บน **Google Cloud Run Serverless GPU** (Private VPC · Scale-to-Zero คิดค่า GPU เฉพาะวินาทีที่ใช้งาน) รองรับบิลลายมือหวัดอย่างปลอดภัยตาม PDPA
+   * **Cloud API + Client Redaction:** โหมดแชตทำ `maskPII()` (`[PHONE_01]`), โหมดภาพทำ **Client-Side Canvas Visual Redaction** คาดแถบดำลบคอลัมน์เบอร์โทรบนเครื่องก่อนส่ง **Google Gemini 2.5 Flash (Vertex AI)**
+   * **Dynamic Daily Subset + Google Cloud Cache:** ฐานลูกค้าประจำ 50–150 รายช่วยให้ Cache พิกัดใน **Cloud Firestore** ลดค่า **Google Maps API** ได้ 70–80% แต่ชุดจุดส่ง น้ำหนัก และ Time Window เปลี่ยนทุกเช้า จึงต้องรัน **Google OR-Tools / CVRPTW** ใหม่ทุกวัน
 2. **Multimodal Order Extraction (Google Gemini 2.5 Flash):** รองรับทั้งข้อความแชตและรูปภาพใบส่งของ (Base64 `inlineData`) บังคับส่งคืน Structured JSON พร้อมคะแนนความมั่นใจ (Confidence Score)
 3. **Offline Smart Fallback (Auto-Failover):** หากเกิด HTTP 429 Rate Limit, Timeout เกิน 14 วินาที, เน็ตหลุด หรือไม่ได้ใส่ API Key ระบบสลับมาใช้ Offline Smart Thai NLP Parser + ฐานข้อมูลพิกัด กทม.–ปริมณฑลกว่า 45 ย่าน พร้อมระบบ Specific Subdistrict Priority ทันทีภายใน < 20 ms
 4. **Human-in-the-Loop:** รายการที่ AI มั่นใจต่ำกว่า 85% จะไฮไลต์สีเหลืองให้แอดมินตรวจสอบและยืนยันใน 1 คลิกก่อนส่งเข้า Solver

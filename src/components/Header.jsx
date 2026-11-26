@@ -44,7 +44,7 @@ export default function Header({
             <span className="track-tag">Track 4 · SWU</span>
           </h1>
           <span className="brand-subtitle">
-            Chat-to-Green-Route · Hybrid Gemini + CVRPTW + TGO Carbon Engine
+            Google AI Stack · Gemini 2.5 Flash · Gemma 3 (Cloud Run / Edge) · Google OR-Tools · TGO
           </span>
         </div>
       </div>
